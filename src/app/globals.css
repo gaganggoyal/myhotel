@@ -1,26 +1,68 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-deva: var(--font-devanagari), var(--font-inter), sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Visible keyboard focus everywhere (WCAG 2.2 focus appearance). */
+:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  background: #fff;
+  color: #111;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+}
+
+/* Hotel sites: colours come from the owner's theme via CSS variables. */
+.site {
+  --p: #7c2d12;
+  --a: #b45309;
+  --on-p: #ffffff;
+}
+.site[lang="hi"] {
+  font-family: var(--font-deva);
+}
+.site .serif-heading {
+  font-family: var(--font-serif);
+}
+.site[lang="hi"] .serif-heading {
+  font-family: var(--font-deva);
+}
+
+.prose-site p {
+  margin: 0 0 1em;
+  line-height: 1.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
