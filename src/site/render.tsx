@@ -856,7 +856,9 @@ function enquiryProps(ctx: Ctx, search: Search) {
   const policySummary = [
     c.booking.mode === "request" ? ctx.tr("requestNote") : "",
     c.policies.cancellation ? `${ctx.tr("cancellation")}: ${c.policies.cancellation}` : "",
+    c.policies.payment ? `${ctx.tr("payment")}: ${c.policies.payment}` : "",
     c.policies.taxNote ? `${ctx.tr("taxes")}: ${c.policies.taxNote}` : "",
+    c.policies.houseRules ? `${ctx.tr("houseRules")}: ${c.policies.houseRules}` : "",
     ctx.tr("times", { in: c.policies.checkIn, out: c.policies.checkOut }),
   ].filter(Boolean);
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
