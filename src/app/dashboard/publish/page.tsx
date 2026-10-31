@@ -4,20 +4,17 @@ import { requireHotel } from "@/lib/auth";
 import { publishChecklist } from "@/lib/content";
 import { formatDateTime } from "@/lib/format";
 import { getDraft, hasPhotos, listVersions } from "@/lib/hotel";
-import { OnboardingSteps } from "../website/shared";
 import { onlineAction, publishAction, restoreAction } from "./actions";
 
-export default async function PublishPage({ searchParams }: { searchParams: Promise<{ onboarding?: string }> }) {
+export default async function PublishPage() {
   const { hotel, user } = await requireHotel("manager");
   const [{ content, updatedAt }, photos, versions] = await Promise.all([getDraft(hotel.id), hasPhotos(hotel.id), listVersions(hotel.id)]);
   const check = publishChecklist(content, photos);
   const current = versions.find((v) => v.id === hotel.publishedVersionId);
-  const onboarding = (await searchParams).onboarding === "1";
   const unpublishedChanges = !current || updatedAt > current.publishedAt;
 
   return (
     <>
-      <OnboardingSteps step={5} show={onboarding} />
       <PageHeader
         title="Preview & publish"
         description="Edits are saved to a draft. Guests only see them after you publish, and every published version can be restored."

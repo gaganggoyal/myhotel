@@ -4,16 +4,14 @@ import { Card, Field, Input, PageHeader, Select } from "@/components/ui";
 import { TEMPLATES } from "@/lib/content";
 import { contrastRatio, TEMPLATE_STYLES } from "@/site/theme";
 import { saveDesignAction } from "../actions";
-import { loadEditor, OnboardingSteps, Revision } from "../shared";
+import { loadEditor, Revision } from "../shared";
 
-export default async function DesignEditor({ searchParams }: { searchParams: Promise<{ onboarding?: string }> }) {
+export default async function DesignEditor() {
   const { content: c, revision, photos } = await loadEditor();
-  const onboarding = (await searchParams).onboarding === "1";
   const logos = photos.filter((p) => p.kind === "logo");
   const lowContrast = contrastRatio(c.theme.primary, "#ffffff") < 3 && contrastRatio(c.theme.primary, "#111827") < 3;
   return (
     <>
-      <OnboardingSteps step={4} show={onboarding} />
       <PageHeader title="Design & language" description="All templates use the same content, so you can switch any time without retyping anything." />
       <ActionForm action={saveDesignAction}>
         <Revision value={revision} />

@@ -8,18 +8,16 @@ import { paiseToRupeeInput } from "@/lib/format";
 import { saveRoomAction } from "../../actions";
 import { loadEditor, Revision } from "../../shared";
 
-
-export default async function RoomEditor({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ onboarding?: string }> }) {
+export default async function RoomEditor({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { content: c, revision, media } = await loadEditor();
   const room = id === "new" ? null : c.rooms.find((r) => r.id === id);
   if (id !== "new" && !room) notFound();
-  const onboarding = (await searchParams).onboarding === "1";
   const custom = (room?.amenities ?? []).filter((a) => !isCatalogAmenity(a));
   return (
     <>
       <p className="mb-2 text-sm">
-        <Link href={`/dashboard/website/rooms${onboarding ? "?onboarding=1" : ""}`} className="text-slate-600 hover:underline">
+        <Link href="/dashboard/website/rooms" className="text-slate-600 hover:underline">
           ← All rooms
         </Link>
       </p>
