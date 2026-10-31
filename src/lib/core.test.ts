@@ -11,6 +11,7 @@ import { getTemplate } from "./email/catalog";
 import { renderEmail } from "./email/render";
 import { formatINR, nightsBetween, parseRupeesToPaise, whatsappDigits } from "./format";
 import { classifyHost, decodeHostSegment, encodeHostSegment, isApexDomain, normalizeSlug, validateSlug } from "./hosts";
+import { ipFromHeaders } from "./request";
 import { buildUpiIntent, isValidVpa, normalizeUtr, parseUpiUri, qrConsistencyWarning } from "./upi";
 import { verifySvix } from "./webhooks";
 
@@ -139,6 +140,15 @@ describe("signatures and tokens", () => {
   });
   it("makes unambiguous references", () => {
     assert.match(makeRef("RVR"), /^RVR-[2-9A-HJ-NP-Z]{6}$/);
+  });
+});
+
+describe("client IP", () => {
+  it("reads only the edge's header, so visitors cannot forge their way past rate limits", () => {
+    const forged = { "cf-connecting-ip": "6.6.6.6", "x-real-ip": "6.6.6.7" };
+    assert.equal(ipFromHeaders(new Headers({ ...forged, "x-forwarded-for": "6.6.6.8, 203.0.113.9" }), "x-forwarded-for"), "203.0.113.9");
+    assert.equal(ipFromHeaders(new Headers({ "cf-connecting-ip": "6.6.6.6", "x-real-ip": "198.51.100.4" }), "x-real-ip"), "198.51.100.4");
+    assert.equal(ipFromHeaders(new Headers(forged), "x-forwarded-for"), "unknown");
   });
 });
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CANCELLATION_PRESETS, PET_PRESETS, STANDARD_POLICIES, WHY_DIRECT } from "./policies";
 
 // The structured hotel content model. Every template renders from this one shape, the
 // dashboard edits it section by section, and publishing freezes a copy of it.
@@ -49,6 +50,10 @@ export const propertySchema = z.object({
   description: str(4000),
   /** One line on why guests should enquire directly. */
   whyDirect: str(160),
+  /** Highlight keys from the catalog in amenities.ts, in the owner's order. */
+  highlights: z.array(z.string().trim().min(1).max(60)).max(12).default([]),
+  /** A few lines in the owner's own words, quoted as-is in the generated description. */
+  ownWords: str(600),
 });
 
 export const contactSchema = z.object({
@@ -156,6 +161,11 @@ export const siteContentSchema = z.object({
       grievanceEmail: z.union([z.literal(""), z.email()]).default(""),
     })
     .default({ businessName: "", gstin: "", grievanceEmail: "" }),
+  /**
+   * Field path -> fingerprint of the text quick setup wrote there. A field whose text still
+   * matches can be rewritten; once the owner edits it, it is theirs (see autowrite.ts).
+   */
+  autofill: z.record(z.string().max(80), z.string().max(16)).default({}),
 });
 
 export type SiteContent = z.infer<typeof siteContentSchema>;
@@ -186,19 +196,17 @@ export function newId(): string {
 const DEFAULT_POLICIES = {
   checkIn: "12:00",
   checkOut: "11:00",
-  cancellation:
-    "Free cancellation up to 7 days before arrival. Cancellations within 7 days forfeit the deposit. No-shows are charged the first night.",
-  payment:
-    "A deposit confirms your booking. The balance is payable at check-in by UPI, card or cash. We confirm your booking once we have received the deposit in our account.",
-  children: "Children up to 5 years stay free using existing bedding. An extra mattress is available on request at an additional charge.",
-  pets: "Pets are not allowed unless agreed in advance.",
-  smoking: "Smoking is not permitted inside rooms.",
-  idProof:
-    "A valid government photo ID (Aadhaar, passport, driving licence or voter ID) is required for every adult guest at check-in. Foreign nationals must present a passport and valid visa.",
-  houseRules: "Quiet hours are from 10 pm to 7 am. Visitors are welcome in common areas only.",
-  taxNote: "Room rates shown are a guide and exclude GST, which is charged as applicable. Your confirmed quote will show the final amount.",
+  cancellation: CANCELLATION_PRESETS.moderate.en,
+  payment: STANDARD_POLICIES.payment.en,
+  children: STANDARD_POLICIES.children.en,
+  pets: PET_PRESETS.not_allowed.en,
+  smoking: STANDARD_POLICIES.smoking.en,
+  idProof: STANDARD_POLICIES.idProof.en,
+  houseRules: STANDARD_POLICIES.houseRules.en,
+  taxNote: STANDARD_POLICIES.taxNote.en,
 };
 
+/** The facts a new property starts with. autoWrite() (autowrite.ts) then writes its text. */
 export function defaultContent(input: {
   name: string;
   type: PropertyType;
@@ -211,24 +219,38 @@ export function defaultContent(input: {
     property: {
       name: input.name,
       type: input.type,
-      tagline: input.city ? `A ${PROPERTY_TYPE_LABELS[input.type].toLowerCase()} in ${input.city}` : "",
+      tagline: "",
       description: "",
-      whyDirect: "Book directly with us for the best available rate and a personal reply from our team.",
+      whyDirect: WHY_DIRECT.en,
     },
     contact: {
       phone: input.phone,
       whatsapp: input.phone,
       email: input.email,
       address: { line1: "", line2: "", locality: "", city: input.city, state: input.state, postalCode: "", country: "India" },
-      mapQuery: [input.name, input.city, input.state].filter(Boolean).join(", "),
+      mapQuery: "",
       directions: "",
     },
-    hero: { headline: input.name, subheadline: "", mediaIds: [] },
+    hero: { headline: "", subheadline: "", mediaIds: [] },
     policies: DEFAULT_POLICIES,
-    about: { title: `About ${input.name}`, body: "" },
+    about: { title: "", body: "" },
     seo: { title: "", description: "", ogMediaId: null },
-    legal: { businessName: input.name, gstin: "", grievanceEmail: input.email },
+    legal: { businessName: "", gstin: "", grievanceEmail: input.email },
   });
+}
+
+/** Removes a photo from every place the content uses it. */
+export function dropMedia(c: SiteContent, id: string): SiteContent {
+  const drop = (arr: string[]) => arr.filter((x) => x !== id);
+  return {
+    ...c,
+    hero: { ...c.hero, mediaIds: drop(c.hero.mediaIds) },
+    gallery: { mediaIds: drop(c.gallery.mediaIds) },
+    dining: { ...c.dining, mediaIds: drop(c.dining.mediaIds) },
+    rooms: c.rooms.map((r) => ({ ...r, mediaIds: drop(r.mediaIds) })),
+    logoMediaId: c.logoMediaId === id ? null : c.logoMediaId,
+    seo: { ...c.seo, ogMediaId: c.seo.ogMediaId === id ? null : c.seo.ogMediaId },
+  };
 }
 
 /** Everything a site must have before it can be published, and softer warnings. */

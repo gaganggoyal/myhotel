@@ -3,12 +3,11 @@ import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/forms";
 import { MediaPicker } from "@/components/media";
 import { Card, Checkbox, Field, Input, PageHeader, Textarea } from "@/components/ui";
-import { AMENITIES, isCatalogAmenity } from "@/lib/amenities";
+import { isCatalogAmenity, ROOM_FEATURES } from "@/lib/amenities";
 import { paiseToRupeeInput } from "@/lib/format";
 import { saveRoomAction } from "../../actions";
 import { loadEditor, Revision } from "../../shared";
 
-const ROOM_AMENITY_KEYS = ["air_conditioning", "room_heater", "tv", "wifi", "hot_water", "kettle", "room_service", "wheelchair"];
 
 export default async function RoomEditor({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ onboarding?: string }> }) {
   const { id } = await params;
@@ -61,7 +60,7 @@ export default async function RoomEditor({ params, searchParams }: { params: Pro
         </Card>
         <Card title="In the room">
           <div className="grid gap-3 sm:grid-cols-2">
-            {AMENITIES.filter((a) => ROOM_AMENITY_KEYS.includes(a.key)).map((a) => (
+            {ROOM_FEATURES.map((a) => (
               <Checkbox key={a.key} name="amenities" value={a.key} defaultChecked={room?.amenities.includes(a.key)} label={a.en} />
             ))}
           </div>

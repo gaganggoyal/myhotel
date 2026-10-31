@@ -41,7 +41,7 @@ Stop `npm run dev` before running `npm run setup` or any other script that opens
 only one process can open embedded Postgres at a time.
 
 ```bash
-npm test          # 25 tests: unit (routing, slugs, UPI, DNS, signatures, billing) + full service flows
+npm test          # 33 tests: unit (routing, slugs, UPI, DNS, signatures, billing, copywriting) + full service flows
 npm run typecheck
 npm run lint
 npm run build
@@ -59,6 +59,19 @@ request ── proxy.ts ── platform host? ──> marketing, /dashboard, /ad
                                               • unpaid/suspended/unpublished → neutral maintenance page
 ```
 
+- **Quick setup** (`/setup`, `src/lib/setup.ts`, `src/lib/autowrite.ts`). After sign-up, owners
+  answer six short, phone-friendly steps: highlights, photos, rooms and prices, facilities and
+  rules, contact, and design and language. The site is then written and published for them.
+  - Photos are shrunk in the browser before upload (a 12 MP phone photo goes up as about 1 MB),
+    and the server still re-checks and re-encodes every file.
+  - The copywriter writes the tagline, description, room text, FAQ, dining page, policies, Google
+    title and description, and photo alt text in English or Hindi, from the owner's answers only.
+    It never invents facts.
+  - It fills only empty fields or text it wrote itself (tracked by fingerprint in
+    `content.autofill`). Anything the owner edits is never overwritten, so quick setup can be
+    re-run at any time, for example to switch the site to Hindi.
+  - Each step saves to the draft, so owners can leave and resume. Publishing still requires a
+    verified email; the verification link brings the owner back to publish.
 - **Content model.** Each hotel's site is one typed document (`src/lib/content.ts`, zod).
   Owners edit a **draft**. Publishing freezes an immutable **version**; rollback republishes
   an old one. All three templates (Heritage, Coastal, Modern) and both languages (en/hi)
@@ -147,10 +160,13 @@ scripts/                    migrate, seed, cron
 7. **Jobs.** `vercel.json` runs `/api/cron/run` hourly; Vercel sends `CRON_SECRET`. Elsewhere,
    call it with `Authorization: Bearer $CRON_SECRET`. If `CRON_SECRET` is unset in production
    the endpoint refuses every call.
-8. Set `APP_SECRET` to a random 32-byte value (without it, production uses a random
+8. **Client IP.** Rate limits read the visitor's IP only from the header your edge sets. This is
+   `cf-connecting-ip` on Cloudflare, `x-real-ip` on Vercel, and otherwise the last
+   `x-forwarded-for` entry. Set `CLIENT_IP_HEADER` if your setup differs.
+9. Set `APP_SECRET` to a random 32-byte value (without it, production uses a random
    per-process secret and logs a warning) and `ADMIN_EMAILS` to your staff emails.
    Optionally set `TURNSTILE_*` for form CAPTCHA.
-9. **Before taking money:** have Indian counsel review the generated legal text (DPDP Act,
+10. **Before taking money:** have Indian counsel review the generated legal text (DPDP Act,
    consumer protection, GST invoicing, CERT-In log retention). Test a backup restore and
    a tenant export.
 
@@ -163,7 +179,9 @@ These are sequenced in the research's roadmap; each needs evidence from paying p
 - PMS or channel-manager sync and Google Hotel free booking links
 - Team invitations (the data model has owner/manager/front-desk roles)
 - Hotel-domain email sending (`From: @hotel.com` with the hotel's own DKIM)
-- Multi-property accounts, phone OTP, and AI-drafted copy
+- Multi-property accounts and phone OTP
+- AI-polished copy (the built-in copywriter is rule-based: free, instant and limited to the
+  owner's facts) and a Hindi version of the setup screens themselves
 
 ## Known limitations
 

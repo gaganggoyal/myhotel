@@ -34,6 +34,12 @@ export const config = {
   /** empty in production when unset, which disables /api/cron/run */
   cronSecret: env.CRON_SECRET || (isProd ? "" : "dev-cron-secret"),
 
+  /**
+   * The one request header our own edge sets to the visitor's IP; anything else can be forged
+   * by the client. Defaults follow DOMAIN_PROVIDER. For x-forwarded-for the last entry is used.
+   */
+  clientIpHeader: (env.CLIENT_IP_HEADER || { cloudflare: "cf-connecting-ip", vercel: "x-real-ip" }[env.DOMAIN_PROVIDER ?? ""] || "x-forwarded-for").toLowerCase(),
+
   storageDriver: (env.STORAGE_DRIVER ?? "local") as "local" | "s3",
 
   email: {

@@ -33,6 +33,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           {
             title: "Website",
             items: [
+              { href: "/setup", label: "Quick setup" },
               { href: "/dashboard/website/property", label: "Property & home" },
               { href: "/dashboard/website/rooms", label: "Rooms" },
               { href: "/dashboard/website/photos", label: "Photos" },

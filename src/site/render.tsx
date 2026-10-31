@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { AMENITIES, amenityLabel, isCatalogAmenity } from "@/lib/amenities";
+import { AMENITIES, amenityLabel, highlightFor, isCatalogAmenity, type Highlight } from "@/lib/amenities";
 import { findPaymentRequestByToken } from "@/lib/bookings";
 import { config } from "@/lib/config";
 import type { Room, SiteContent } from "@/lib/content";
@@ -371,6 +371,10 @@ function HomePage({ ctx }: { ctx: Ctx }) {
   const rooms = c.rooms.filter((r) => r.visible);
   const headline = c.hero.headline || c.property.name;
   const sub = c.hero.subheadline || c.property.tagline;
+  const highlights = c.property.highlights
+    .map(highlightFor)
+    .filter((h): h is Highlight => Boolean(h))
+    .slice(0, 6);
 
   const hero =
     style.hero === "split" ? (
@@ -424,6 +428,18 @@ function HomePage({ ctx }: { ctx: Ctx }) {
               </div>
             </div>
             <aside className={`h-fit space-y-3 p-5 text-sm ${style.card}`}>
+              {highlights.length ? (
+                <ul className="space-y-1.5 border-b border-black/5 pb-3">
+                  {highlights.map((h) => (
+                    <li key={h.key} className="flex gap-2 text-neutral-900">
+                      <span aria-hidden="true" className="text-[var(--a)]">
+                        ✓
+                      </span>
+                      {h[ctx.locale]}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <p className="font-semibold text-neutral-900">{tr("times", { in: c.policies.checkIn, out: c.policies.checkOut })}</p>
               <p>{addressLine(c)}</p>
               <a href={ctx.href("/location")} className="font-semibold text-[var(--p)]">

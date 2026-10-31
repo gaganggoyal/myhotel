@@ -1,13 +1,15 @@
 import { headers } from "next/headers";
+import { config } from "./config";
 
-/** Best-effort client IP. Behind Vercel/Cloudflare the first x-forwarded-for entry is the client. */
-export function ipFromHeaders(h: Headers): string {
-  return (
-    h.get("cf-connecting-ip") ??
-    h.get("x-real-ip") ??
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "unknown"
-  );
+/**
+ * Client IP for rate limits and logs, read only from the header our edge sets
+ * (CLIENT_IP_HEADER). A proxy appends the address it saw to x-forwarded-for, so the last
+ * entry is the one our edge wrote; earlier entries come from the client and can be forged.
+ */
+export function ipFromHeaders(h: Headers, header = config.clientIpHeader): string {
+  const value = h.get(header);
+  if (!value) return "unknown";
+  return (header === "x-forwarded-for" ? value.split(",").at(-1) : value)?.trim() || "unknown";
 }
 
 export async function clientIp(): Promise<string> {

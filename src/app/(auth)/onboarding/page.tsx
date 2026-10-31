@@ -15,10 +15,10 @@ export default async function OnboardingPage() {
   if (await getHotelContext()) redirect("/dashboard");
   return (
     <>
-      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Step 1 of 5</p>
-      <h1 className="mt-1 text-2xl font-bold text-slate-900">Tell us about your property</h1>
-      <p className="mt-1 text-sm text-slate-600">You can change all of this later.</p>
-      <ActionForm action={createPropertyAction} submitLabel="Create my website" pendingLabel="Creating…" className="mt-6">
+      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Step 1 of 7</p>
+      <h1 className="mt-1 text-2xl font-bold text-slate-900">Let’s build your website</h1>
+      <p className="mt-1 text-sm text-slate-600">Start with the basics. Next you’ll add photos and rooms, and we’ll write the rest for you.</p>
+      <ActionForm action={createPropertyAction} submitLabel="Continue" pendingLabel="Creating…" className="mt-6">
         <Field label="Property name" htmlFor="name">
           <Input id="name" name="name" required minLength={2} maxLength={80} placeholder="River View Retreat" />
         </Field>
@@ -47,12 +47,15 @@ export default async function OnboardingPage() {
         <Field label="Phone / WhatsApp for guests" htmlFor="phone">
           <Input id="phone" name="phone" type="tel" defaultValue={user.phone ?? ""} required />
         </Field>
-        <Field label="Web address" htmlFor="slug" hint={`Your site will be at <name>.${config.rootHostname}. Leave blank to use your property name. You can connect your own domain later.`}>
-          <div className="flex items-center gap-2">
-            <Input id="slug" name="slug" placeholder="river-view-retreat" pattern="[a-zA-Z0-9- ]*" />
-            <span className="whitespace-nowrap text-sm text-slate-500">.{config.rootHostname}</span>
-          </div>
-        </Field>
+        <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+          <summary className="cursor-pointer font-medium text-slate-700">Choose your web address (optional)</summary>
+          <Field label="Web address" htmlFor="slug" className="mt-3" hint={`Leave blank and we’ll use your property name. You can connect your own domain later.`}>
+            <div className="flex items-center gap-2">
+              <Input id="slug" name="slug" placeholder="river-view-retreat" pattern="[a-zA-Z0-9- ]*" />
+              <span className="whitespace-nowrap text-sm text-slate-500">.{config.rootHostname}</span>
+            </div>
+          </Field>
+        </details>
       </ActionForm>
     </>
   );

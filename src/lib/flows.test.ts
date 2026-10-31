@@ -72,6 +72,30 @@ describe("hotel lifecycle", () => {
   });
 });
 
+describe("quick setup", () => {
+  it("turns a new hotel's answers into a published site with written copy", async () => {
+    const { autoWrite } = await import("./autowrite");
+    const setup = await import("./setup");
+    const h = await m.hotel.createHotel({ userId, name: "Hill Nest", slug: "hill-nest", type: "guest_house", city: "Manali", state: "Himachal Pradesh", phone: "9800000002", email: "o@test.in" });
+    let { content } = await m.hotel.getDraft(h.id);
+    assert.equal(content.property.tagline, "A guest house in Manali", "a new hotel starts with written text");
+    assert.equal(content.legal.businessName, "Hill Nest");
+
+    await m.hotel.updateDraft(h.id, userId, (c) => setup.applyPlace(c, { name: "Hill Nest", type: "guest_house", highlights: ["mountain_view", "family"], ownWords: "" }));
+    await m.hotel.updateDraft(h.id, userId, (c) => setup.applyRooms(c, [{ id: "", name: "Deluxe room", price: "2200", adults: 2, bed: "double", view: "mountain", features: ["room_heater"], mediaIds: [] }], new Set()));
+    await m.hotel.updateDraft(h.id, userId, (c) => autoWrite(c));
+    ({ content } = await m.hotel.getDraft(h.id));
+    assert.equal(content.property.tagline, "A guest house with mountain views in Manali");
+    assert.match(content.rooms[0].description, /^The Deluxe room has a double bed and sleeps up to 2 guests\. It comes with a room heater\. Enjoy the mountain view from the room\.$/);
+
+    const { version } = await m.hotel.publishDraft(h, { userId, label: "o" });
+    assert.equal(version, 1);
+    m.cache.invalidateHotel(h.id);
+    const r = await m.site.resolveHost("hill-nest.localhost:3000");
+    assert.equal(r.type === "site" && r.site.availability, "live");
+  });
+});
+
 describe("guest booking and payment", () => {
   it("runs enquiry → reservation → payment request → guest report → staff confirmation", async () => {
     const db = await m.db.getDb();
