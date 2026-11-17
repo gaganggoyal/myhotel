@@ -4,10 +4,11 @@ import type { EnquiryKind, EnquiryStatus, PaymentRequestStatus, ReservationStatu
 import { audit, GUEST_ACTOR, type AuditActor } from "./audit";
 import { appUrl, siteOrigin, subdomainHost } from "./config";
 import type { SiteContent } from "./content";
-import { makeRef, randomToken, refPrefix } from "./crypto";
+import { makeRef, randomToken, refPrefix, sha256 } from "./crypto";
 import { activeDomainFor } from "./domains/service";
 import { hotelInbox, sendHotelEmail } from "./email/send";
-import { formatDate, formatINR, nightsBetween } from "./format";
+import { formatDate, formatINR, isIsoDate, nightsBetween } from "./format";
+import { rateLimit } from "./ratelimit";
 
 const { enquiries, reservations, reservationEvents, paymentRequests, paymentMethods, hotels } = schema;
 type Reservation = typeof reservations.$inferSelect;
@@ -23,6 +24,14 @@ export const ENQUIRY_STATUS_LABELS: Record<EnquiryStatus, string> = {
   lost: "Lost",
   spam: "Spam",
 };
+
+/** Own keys only: `in` would also accept inherited names such as "toString". */
+export function isEnquiryStatus(value: string): value is EnquiryStatus {
+  return Object.hasOwn(ENQUIRY_STATUS_LABELS, value);
+}
+
+/** Amounts are integer paise in int4 columns; ₹1 crore keeps every amount well inside that range. */
+export const MAX_AMOUNT_PAISE = 1_00_00_000_00;
 
 export const RESERVATION_STATUS_LABELS: Record<ReservationStatus, string> = {
   pending: "Pending",
@@ -102,6 +111,8 @@ export type EnquiryInput = {
   source: { path?: string; cta?: string; referrer?: string; utm?: Record<string, string> };
 };
 
+const GUEST_ACKS_PER_DAY = 5;
+
 export async function createEnquiry(hotel: { id: string; slug: string }, content: SiteContent, input: EnquiryInput) {
   const db = await getDb();
   const room = input.roomId ? content.rooms.find((r) => r.id === input.roomId && r.visible) : undefined;
@@ -143,7 +154,11 @@ export async function createEnquiry(hotel: { id: string; slug: string }, content
   };
   // Owner first: the lead must never be lost even if the guest's address bounces.
   await sendHotelEmail({ hotelId: hotel.id, key: "enquiry_owner", to: await hotelInbox(hotel.id), vars });
-  await sendHotelEmail({ hotelId: hotel.id, key: input.kind === "booking_request" ? "booking_request_guest" : "enquiry_guest", to: row.guestEmail, vars });
+  // A public form accepts any address, so one inbox gets a few acknowledgements a day across all
+  // hotels; further enquiries still reach the owner.
+  if (await rateLimit(`ack:${sha256(row.guestEmail)}`, GUEST_ACKS_PER_DAY, 86_400)) {
+    await sendHotelEmail({ hotelId: hotel.id, key: input.kind === "booking_request" ? "booking_request_guest" : "enquiry_guest", to: row.guestEmail, vars });
+  }
   return row;
 }
 
@@ -184,7 +199,9 @@ export type ReservationInput = {
 };
 
 export async function createReservation(hotel: { id: string; slug: string }, input: ReservationInput, actor: AuditActor, enquiryId?: string | null) {
+  if (!isIsoDate(input.checkIn) || !isIsoDate(input.checkOut)) throw new BookingError("Choose valid check-in and check-out dates.");
   if (input.checkOut <= input.checkIn) throw new BookingError("Check-out must be after check-in.");
+  if (input.totalAmount > MAX_AMOUNT_PAISE) throw new BookingError(`Enter a total of up to ${formatINR(MAX_AMOUNT_PAISE)}.`);
   const db = await getDb();
   const ref = await uniqueRef(reservations, refPrefix(hotel.slug));
   const [r] = await db
@@ -251,7 +268,8 @@ export async function setReservationStatus(hotelId: string, id: string, status: 
     await db
       .update(paymentRequests)
       .set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(eq(paymentRequests.reservationId, id), inArray(paymentRequests.status, ["unpaid", "guest_reported", "needs_review"])));
+      // "rejected" too: a guest may still report against it, which a cancelled stay must not invite.
+      .where(and(eq(paymentRequests.reservationId, id), inArray(paymentRequests.status, ["unpaid", "guest_reported", "needs_review", "rejected"])));
     if (notifyGuest) {
       const content = await contentFor(hotelId);
       await sendHotelEmail({ hotelId, key: "booking_cancelled", to: r.guestEmail, vars: await stayVars(updated, content) });
@@ -284,6 +302,7 @@ export async function createPaymentRequest(
   const pm = await getPaymentMethod(hotel.id);
   if (!pm || !pm.enabled) throw new BookingError("Add your UPI payment details first (Payments page).");
   if (input.amount <= 0) throw new BookingError("Enter an amount greater than zero.");
+  if (input.amount > MAX_AMOUNT_PAISE) throw new BookingError(`Enter an amount of up to ${formatINR(MAX_AMOUNT_PAISE)}.`);
 
   const expiresAt = new Date(Date.now() + Math.max(1, Math.min(60, input.dueDays)) * 86_400_000);
   const [request] = await db
@@ -341,10 +360,14 @@ export async function guestReportPayment(token: string, input: { utr: string; no
   const { request, reservation } = found;
   if (!canTransition(request.status, "guest_reported", "guest")) throw new BookingError("This payment can no longer be updated. Contact the hotel.");
   const db = await getDb();
-  await db
+  // Conditional on the status we checked, so a report racing with staff marking it received
+  // can never undo that decision.
+  const [updated] = await db
     .update(paymentRequests)
     .set({ status: "guest_reported", guestReportedAt: new Date(), guestUtr: input.utr, guestNote: input.note || null, guestProofMediaId: input.proofMediaId ?? request.guestProofMediaId, updatedAt: new Date() })
-    .where(eq(paymentRequests.id, request.id));
+    .where(and(eq(paymentRequests.id, request.id), eq(paymentRequests.status, request.status)))
+    .returning({ id: paymentRequests.id });
+  if (!updated) throw new BookingError("The hotel has just updated this payment. Reload the page to see its status.");
   await logEvent(reservation, "payment.guest_reported", GUEST_ACTOR, { utr: input.utr, amount: request.amount });
   await sendHotelEmail({
     hotelId: request.hotelId,
@@ -378,10 +401,12 @@ export async function resolvePayment(
   if (!row) throw new BookingError("Payment request not found");
   const { request, reservation } = row;
   if (!canTransition(request.status, to, "staff")) throw new BookingError(`Cannot change a payment from “${PAYMENT_STATUS_LABELS[request.status]}” to “${PAYMENT_STATUS_LABELS[to]}”.`);
-  await db
+  const [updated] = await db
     .update(paymentRequests)
     .set({ status: to, resolvedAt: new Date(), resolvedBy: actor.userId, resolutionNote: input.note || null, updatedAt: new Date() })
-    .where(eq(paymentRequests.id, request.id));
+    .where(and(eq(paymentRequests.id, request.id), eq(paymentRequests.status, request.status)))
+    .returning({ id: paymentRequests.id });
+  if (!updated) throw new BookingError("This payment changed while you were viewing it. Reload the page and try again.");
   await logEvent(reservation, `payment.${to}`, actor, { amount: request.amount, note: input.note });
   await audit(hotelId, actor, `payment.${to}`, { ref: reservation.ref, amount: request.amount }, { target: request.id });
 

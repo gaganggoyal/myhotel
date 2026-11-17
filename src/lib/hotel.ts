@@ -1,8 +1,9 @@
 import { and, desc, eq, inArray, isNull, max } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { audit, type AuditActor } from "./audit";
+import { autoWrite } from "./autowrite";
 import { startTrial } from "./billing/subscription";
-import { defaultContent, parseContent, publishChecklist, type PropertyType, type SiteContent } from "./content";
+import { defaultContent, dropMedia, parseContent, publishChecklist, type PropertyType, type SiteContent } from "./content";
 import { normalizeSlug, validateSlug } from "./hosts";
 import { invalidateHotel } from "./site-cache";
 
@@ -21,14 +22,19 @@ export async function isSlugAvailable(slug: string, exceptHotelId?: string): Pro
   return true;
 }
 
+/** `base` plus "-suffix", trimmed so the whole label still fits in 63 characters. */
+function withSuffix(base: string, suffix: string): string {
+  return `${base.slice(0, 62 - suffix.length).replace(/-+$/, "")}-${suffix}`;
+}
+
 export async function suggestSlug(name: string): Promise<string> {
   const base = normalizeSlug(name) || "my-hotel";
   let candidate = base.length >= 3 ? base : `${base}-stay`;
   for (let i = 2; i < 50; i++) {
     if (!validateSlug(candidate) && (await isSlugAvailable(candidate))) return candidate;
-    candidate = `${base}-${i}`.slice(0, 63);
+    candidate = withSuffix(base, String(i));
   }
-  return `${base}-${Math.random().toString(36).slice(2, 6)}`;
+  return withSuffix(base, Math.random().toString(36).slice(2, 6));
 }
 
 export async function createHotel(input: {
@@ -46,7 +52,7 @@ export async function createHotel(input: {
   if (problem) throw new HotelError(problem);
   if (!(await isSlugAvailable(slug))) throw new HotelError("That web address is taken. Try another.");
   const db = await getDb();
-  const content = defaultContent(input);
+  const content = autoWrite(defaultContent(input));
   const hotel = await db.transaction(async (tx) => {
     const [h] = await tx.insert(hotels).values({ slug, name: input.name.trim() }).returning();
     await tx.insert(memberships).values({ hotelId: h.id, userId: input.userId, role: "owner" });
@@ -98,6 +104,19 @@ export async function hasPhotos(hotelId: string): Promise<boolean> {
     .where(and(eq(media.hotelId, hotelId), eq(media.kind, "photo"), isNull(media.deletedAt)))
     .limit(1);
   return Boolean(row);
+}
+
+/** Soft delete: a published version may still show the file until the next publish. */
+export async function deletePhoto(hotelId: string, actor: AuditActor & { userId: string }, mediaId: string): Promise<void> {
+  const db = await getDb();
+  const [row] = await db
+    .update(media)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(media.id, mediaId), eq(media.hotelId, hotelId), isNull(media.deletedAt)))
+    .returning({ id: media.id });
+  if (!row) throw new HotelError("That photo was already deleted.");
+  await audit(hotelId, actor, "media.deleted", {}, { target: mediaId });
+  await updateDraft(hotelId, actor.userId, (c) => dropMedia(c, mediaId));
 }
 
 export async function publishDraft(hotel: Hotel, actor: AuditActor & { userId: string }, note?: string): Promise<{ version: number }> {

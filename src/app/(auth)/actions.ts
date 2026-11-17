@@ -1,12 +1,12 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { fail, ok, str, type ActionState } from "@/lib/action";
 import { audit, userActor } from "@/lib/audit";
-import { createSession, destroyOtherSessions, destroySession, getCurrentUser, isAdminEmail } from "@/lib/auth";
+import { createSession, destroyOtherSessions, destroySession, getCurrentUser, isPlatformAdmin } from "@/lib/auth";
 import { appUrl } from "@/lib/config";
 import { hashIp, hashPassword, verifyPassword } from "@/lib/crypto";
 import { sendPlatformEmail } from "@/lib/email/send";
@@ -23,7 +23,8 @@ const signupSchema = z.object({
   password: z.string().min(10, "Use at least 10 characters for your password.").max(200),
 });
 
-export async function sendVerification(user: { id: string; email: string; name: string }) {
+// Not exported: every export of a "use server" file is a public action, and this one trusts its argument.
+async function sendVerification(user: { id: string; email: string; name: string }) {
   const token = await issueToken("verify_email", { userId: user.id, ttlMinutes: 48 * 60 });
   await sendPlatformEmail({ to: user.email, key: "verify_email", vars: { owner_name: user.name, link: appUrl(`/verify-email?token=${token}`) } });
 }
@@ -38,6 +39,7 @@ export async function signupAction(_: ActionState, fd: FormData): Promise<Action
   const db = await getDb();
   const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, parsed.data.email));
   if (existing) return fail("An account with this email already exists. Log in instead.");
+  // Admin rights wait for a verified email (isPlatformAdmin), so a listed address grants nothing here.
   const [user] = await db
     .insert(users)
     .values({
@@ -45,13 +47,12 @@ export async function signupAction(_: ActionState, fd: FormData): Promise<Action
       email: parsed.data.email,
       phone: parsed.data.phone,
       passwordHash: await hashPassword(parsed.data.password),
-      isPlatformAdmin: isAdminEmail(parsed.data.email),
     })
     .returning();
   await sendVerification(user);
   await audit(null, userActor(user), "user.signup", {}, { ip });
   await createSession(user.id);
-  redirect(user.isPlatformAdmin ? "/admin" : "/onboarding");
+  redirect("/onboarding");
 }
 
 export async function loginAction(_: ActionState, fd: FormData): Promise<ActionState> {
@@ -64,7 +65,7 @@ export async function loginAction(_: ActionState, fd: FormData): Promise<ActionS
   // Same message and similar timing whether or not the account exists.
   const valid = user ? await verifyPassword(password, user.passwordHash) : await verifyPassword(password, "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA");
   if (!user || !valid) return fail("Email or password is incorrect.");
-  if (isAdminEmail(user.email) && !user.isPlatformAdmin) await db.update(users).set({ isPlatformAdmin: true }).where(eq(users.id, user.id));
+  if (isPlatformAdmin(user) && !user.isPlatformAdmin) await db.update(users).set({ isPlatformAdmin: true }).where(eq(users.id, user.id));
   await createSession(user.id);
   await audit(null, userActor(user), "user.login", {}, { ip });
   const next = str(fd, "next");
@@ -96,7 +97,12 @@ export async function resetPasswordAction(_: ActionState, fd: FormData): Promise
   const row = await consumeToken("reset_password", str(fd, "token"));
   if (!row?.userId) return fail("This reset link is invalid or has expired. Request a new one.");
   const db = await getDb();
-  const [user] = await db.update(users).set({ passwordHash: await hashPassword(password) }).where(eq(users.id, row.userId)).returning();
+  // The link was emailed to this address, so using it also proves the owner receives its mail.
+  const [user] = await db
+    .update(users)
+    .set({ passwordHash: await hashPassword(password), emailVerifiedAt: sql`coalesce(${users.emailVerifiedAt}, now())` })
+    .where(eq(users.id, row.userId))
+    .returning();
   await destroyOtherSessions(user.id);
   await audit(null, userActor(user), "user.password_reset");
   await createSession(user.id);

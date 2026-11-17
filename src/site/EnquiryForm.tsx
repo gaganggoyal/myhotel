@@ -1,7 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { t, type Locale } from "./i18n";
+
+type TurnstileApi = { render: (el: HTMLElement, options: Record<string, unknown>) => string; reset: (id: string) => void; remove: (id: string) => void };
+const turnstileApi = () => (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+const TURNSTILE_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+
+/**
+ * Cloudflare Turnstile, shown only when the platform has a site key. The widget writes its token
+ * into a "cf-turnstile-response" field inside the form, which the enquiry API verifies.
+ */
+function Turnstile({ siteKey, locale, resetKey }: { siteKey: string; locale: Locale; resetKey: number }) {
+  const container = useRef<HTMLDivElement>(null);
+  const widget = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const mount = () => {
+      const api = turnstileApi();
+      if (cancelled || !api || !container.current || widget.current) return;
+      widget.current = api.render(container.current, { sitekey: siteKey, language: locale });
+    };
+    if (turnstileApi()) mount();
+    else {
+      let script = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SRC}"]`);
+      if (!script) {
+        script = document.createElement("script");
+        script.src = TURNSTILE_SRC;
+        script.async = true;
+        document.head.appendChild(script);
+      }
+      script.addEventListener("load", mount, { once: true });
+    }
+    return () => {
+      cancelled = true;
+      if (widget.current) turnstileApi()?.remove(widget.current);
+      widget.current = null;
+    };
+  }, [siteKey, locale]);
+  // Each token is accepted once, so a failed submission needs a fresh one.
+  useEffect(() => {
+    if (resetKey && widget.current) turnstileApi()?.reset(widget.current);
+  }, [resetKey]);
+  return <div ref={container} className="min-h-[65px]" />;
+}
 
 type RoomOption = { id: string; name: string; maxAdults: number; maxChildren: number };
 
@@ -29,6 +71,7 @@ export function EnquiryForm(props: EnquiryFormProps) {
   const tr = (k: Parameters<typeof t>[1], v?: Record<string, string | number>) => t(props.locale, k, v);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [failures, setFailures] = useState(0);
   const [checkIn, setCheckIn] = useState(props.defaults.checkIn ?? "");
   const isRequest = props.mode === "request";
 
@@ -50,8 +93,10 @@ export function EnquiryForm(props: EnquiryFormProps) {
       const res = await fetch("/api/site/enquiry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const json = (await res.json()) as Result;
       setResult(json.ok ? json : { ok: false, error: json.error || tr("errorGeneric") });
+      if (!json.ok) setFailures((n) => n + 1);
     } catch {
       setResult({ ok: false, error: tr("errorGeneric") });
+      setFailures((n) => n + 1);
     } finally {
       setPending(false);
     }
@@ -174,6 +219,8 @@ export function EnquiryForm(props: EnquiryFormProps) {
           {tr("privacy")}
         </a>
       </p>
+
+      {props.turnstileSiteKey && !props.disabled ? <Turnstile siteKey={props.turnstileSiteKey} locale={props.locale} resetKey={failures} /> : null}
 
       {result && !result.ok ? (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

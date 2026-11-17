@@ -72,6 +72,30 @@ describe("hotel lifecycle", () => {
   });
 });
 
+describe("quick setup", () => {
+  it("turns a new hotel's answers into a published site with written copy", async () => {
+    const { autoWrite } = await import("./autowrite");
+    const setup = await import("./setup");
+    const h = await m.hotel.createHotel({ userId, name: "Hill Nest", slug: "hill-nest", type: "guest_house", city: "Manali", state: "Himachal Pradesh", phone: "9800000002", email: "o@test.in" });
+    let { content } = await m.hotel.getDraft(h.id);
+    assert.equal(content.property.tagline, "A guest house in Manali", "a new hotel starts with written text");
+    assert.equal(content.legal.businessName, "Hill Nest");
+
+    await m.hotel.updateDraft(h.id, userId, (c) => setup.applyPlace(c, { name: "Hill Nest", type: "guest_house", highlights: ["mountain_view", "family"], ownWords: "" }));
+    await m.hotel.updateDraft(h.id, userId, (c) => setup.applyRooms(c, [{ id: "", name: "Deluxe room", price: "2200", adults: 2, bed: "double", view: "mountain", features: ["room_heater"], mediaIds: [] }], new Set()));
+    await m.hotel.updateDraft(h.id, userId, (c) => autoWrite(c));
+    ({ content } = await m.hotel.getDraft(h.id));
+    assert.equal(content.property.tagline, "A guest house with mountain views in Manali");
+    assert.match(content.rooms[0].description, /^The Deluxe room has a double bed and sleeps up to 2 guests\. It comes with a room heater\. Enjoy the mountain view from the room\.$/);
+
+    const { version } = await m.hotel.publishDraft(h, { userId, label: "o" });
+    assert.equal(version, 1);
+    m.cache.invalidateHotel(h.id);
+    const r = await m.site.resolveHost("hill-nest.localhost:3000");
+    assert.equal(r.type === "site" && r.site.availability, "live");
+  });
+});
+
 describe("guest booking and payment", () => {
   it("runs enquiry → reservation → payment request → guest report → staff confirmation", async () => {
     const db = await m.db.getDb();
@@ -154,5 +178,157 @@ describe("billing jobs", () => {
     const s = await m.sub.getSubscription(h.id);
     assert.equal(s?.status, "active");
     assert.ok(s!.currentPeriodEnd! > new Date(Date.now() + 360 * 86_400_000));
+  });
+});
+
+// The suites below reuse "lake-view-stay": published, subscribed and with UPI details by now.
+async function lakeStay() {
+  const { eq } = await import("drizzle-orm");
+  const db = await m.db.getDb();
+  const [h] = await db.select().from(m.db.schema.hotels).where(eq(m.db.schema.hotels.slug, "lake-view-stay"));
+  return h;
+}
+
+const stay = { guestName: "Ravi", guestEmail: "ravi@test.in", guestPhone: "9800000003", checkIn: "2027-03-01", checkOut: "2027-03-03", adults: 2, children: 0, roomName: "Lake Room", totalAmount: 500000, notes: "", status: "pending" as const, notifyGuest: false };
+
+describe("payment races", () => {
+  it("never lets a guest's report undo a staff confirmation", async () => {
+    const { eq } = await import("drizzle-orm");
+    const h = await lakeStay();
+    const actor = { userId, label: "o" };
+    const res = await m.bookings.createReservation(h, stay, actor);
+    const { request } = await m.bookings.createPaymentRequest(h, res.id, { amount: 100000, purpose: "deposit", dueDays: 3, notifyGuest: false }, actor);
+    // Both read "unpaid" before either writes.
+    const [staff, guest] = await Promise.allSettled([
+      m.bookings.resolvePayment(h.id, request.id, "paid", { note: "", notifyGuest: false }, actor),
+      m.bookings.guestReportPayment(request.token, { utr: "123456789012", note: "", proofMediaId: null }),
+    ]);
+    const [row] = await (await m.db.getDb()).select().from(m.db.schema.paymentRequests).where(eq(m.db.schema.paymentRequests.id, request.id));
+    assert.ok(staff.status === "fulfilled" || guest.status === "fulfilled");
+    if (staff.status === "fulfilled") assert.equal(row.status, "paid", "staff were told it is received, so it must stay received");
+  });
+
+  it("closes rejected requests when the stay is cancelled", async () => {
+    const h = await lakeStay();
+    const actor = { userId, label: "o" };
+    const res = await m.bookings.createReservation(h, stay, actor);
+    const { request } = await m.bookings.createPaymentRequest(h, res.id, { amount: 100000, purpose: "deposit", dueDays: 3, notifyGuest: false }, actor);
+    await m.bookings.guestReportPayment(request.token, { utr: "123456789012", note: "", proofMediaId: null });
+    await m.bookings.resolvePayment(h.id, request.id, "rejected", { note: "No credit found", notifyGuest: false }, actor);
+    await m.bookings.setReservationStatus(h.id, res.id, "cancelled", actor, false);
+    await assert.rejects(() => m.bookings.guestReportPayment(request.token, { utr: "123456789012", note: "", proofMediaId: null }), /no longer be updated/);
+  });
+});
+
+describe("booking input limits", () => {
+  it("answers impossible dates and out-of-range amounts with a message, not a database error", async () => {
+    const h = await lakeStay();
+    const actor = { userId, label: "o" };
+    await assert.rejects(() => m.bookings.createReservation(h, { ...stay, checkIn: "2027-02-30" }, actor), /valid check-in/);
+    await assert.rejects(() => m.bookings.createReservation(h, { ...stay, totalAmount: 5_000_000_000 }, actor), /up to ₹1,00,00,000/);
+    const res = await m.bookings.createReservation(h, stay, actor);
+    await assert.rejects(() => m.bookings.createPaymentRequest(h, res.id, { amount: 5_000_000_000, purpose: "deposit", dueDays: 3, notifyGuest: false }, actor), /up to ₹1,00,00,000/);
+  });
+
+  it("makes the public enquiry API reject impossible or past dates with a 400", async () => {
+    const { POST } = await import("@/app/api/site/enquiry/route");
+    const post = (dates: Record<string, string>) =>
+      POST(
+        new Request("http://lake-view-stay.localhost:3000/api/site/enquiry", {
+          method: "POST",
+          headers: { host: "lake-view-stay.localhost:3000", "content-type": "application/json" },
+          body: JSON.stringify({ kind: "enquiry", guestName: "Meera", guestEmail: "meera@test.in", guestPhone: "9800000004", adults: 2, children: 0, t: m.crypto.signTimestamp(Date.now() - 5000), ...dates }),
+        }),
+      );
+    const impossible: Record<string, string>[] = [{ checkIn: "2027-02-30", checkOut: "2027-03-02" }, { checkIn: "2027-13-45" }];
+    for (const dates of impossible) {
+      assert.equal((await post(dates)).status, 400, JSON.stringify(dates));
+    }
+    const past = await post({ checkIn: "2020-01-10" });
+    assert.equal(past.status, 400);
+    assert.match(((await past.json()) as { error: string }).error, /past/);
+  });
+});
+
+describe("guest acknowledgements", () => {
+  it("are sent to one address a few times a day at most, while every lead still reaches the owner", async () => {
+    const { eq } = await import("drizzle-orm");
+    const h = await m.hotel.createHotel({ userId, name: "Ack Test Inn", slug: "ack-test-inn", type: "hotel", city: "Panaji", state: "Goa", phone: "9800000005", email: "o@test.in" });
+    const { content } = await m.hotel.getDraft(h.id);
+    for (let i = 0; i < 7; i++) {
+      await m.bookings.createEnquiry(h, content, { kind: "enquiry", guestName: "Someone", guestEmail: "target@test.in", guestPhone: "9800000006", checkIn: null, checkOut: null, adults: 2, children: 0, roomId: null, message: "", marketingConsent: false, source: {} });
+    }
+    const mails = await (await m.db.getDb()).select().from(m.db.schema.emailMessages).where(eq(m.db.schema.emailMessages.hotelId, h.id));
+    assert.equal(mails.filter((x) => x.templateKey === "enquiry_owner").length, 7);
+    assert.equal(mails.filter((x) => x.templateKey === "enquiry_guest").length, 5);
+  });
+});
+
+describe("offline sites", () => {
+  it("name the hotel only when it was published and is not suspended by staff", async () => {
+    const { eq } = await import("drizzle-orm");
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { OfflinePage, siteMetadata } = await import("@/site/render");
+    const db = await m.db.getDb();
+    const actor = { userId, label: "o" };
+    const offline = async (slug: string) => {
+      const r = await m.site.resolveHost(`${slug}.localhost:3000`);
+      if (r.type !== "site") throw new Error(`${slug} did not resolve`);
+      assert.equal(r.site.availability, "offline");
+      return { site: r.site, html: renderToStaticMarkup(createElement(OfflinePage, { site: r.site })), meta: JSON.stringify(siteMetadata(r.site, [])) };
+    };
+
+    // Never published: the draft's name and phone stay private.
+    await m.hotel.createHotel({ userId, name: "Secret Draft Stay", slug: "secret-draft", type: "homestay", city: "Ooty", state: "Tamil Nadu", phone: "9800000007", email: "o@test.in" });
+    let page = await offline("secret-draft");
+    assert.equal(page.site.offlineReason, "draft");
+    assert.ok(!page.html.includes("Secret Draft Stay") && !page.html.includes("9800000007"));
+    assert.ok(!page.meta.includes("Secret Draft Stay"));
+
+    // Suspended by staff: nothing that could keep an impersonator reachable.
+    const h = await lakeStay();
+    await db.update(m.db.schema.hotels).set({ adminSuspendedAt: new Date(), adminSuspendReason: "test" }).where(eq(m.db.schema.hotels.id, h.id));
+    m.cache.invalidateHotel(h.id);
+    page = await offline("lake-view-stay");
+    assert.equal(page.site.offlineReason, "suspended");
+    assert.ok(!page.html.includes("Lake Stay") && !page.html.includes("tel:"));
+
+    // Taken offline by the owner: guests can still call.
+    await db.update(m.db.schema.hotels).set({ adminSuspendedAt: null, adminSuspendReason: null }).where(eq(m.db.schema.hotels.id, h.id));
+    await m.hotel.setSiteOnline(await lakeStay(), false, actor);
+    page = await offline("lake-view-stay");
+    assert.equal(page.site.offlineReason, "paused");
+    assert.ok(page.html.includes("Lake Stay") && page.html.includes("tel:9800000001"));
+    await m.hotel.setSiteOnline(await lakeStay(), true, actor);
+  });
+});
+
+describe("photo uploads", () => {
+  it("explains HEIC and damaged photos instead of failing with a server error", async () => {
+    const { MediaError, savePhoto } = await import("./media");
+    const sharp = (await import("sharp")).default;
+    const h = await lakeStay();
+    // A 480×320 HEIC made with macOS `sips -s format heic`: HEVC-coded, like an iPhone photo.
+    const heic = Buffer.from(
+      "AAAAJGZ0eXBoZWljAAAAAG1pZjFNaVBybWlhZk1pSEJoZWljAAABhG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAHBpY3QAAAAAAAAAAAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADHVybCAAAAABAAAADnBpdG0AAAAAAAEAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAORpcHJwAAAAw2lwY28AAAATY29scm5jbHgAAgACAAaAAAAADGNsbGkAywBAAAAAFGlzcGUAAAAAAAAB4AAAAUAAAAAJaXJvdAAAAAAQcGl4aQAAAAADCAgIAAAAb2h2Y0MBA3AAAACwAAAAAAA/8AD8/fj4AAALA6AAAQAXQAEMAf//A3AAAAMAsAAAAwAAAwA/cCShAAEAIUIBAQNwAAADALAAAAMAAAMAP6APCAUFiHuRZVNwICBgCKIAAQAJRAHAYeLIQFMkAAAAGWlwbWEAAAAAAAAAAQABBoECAwWGhAAAAB5pbG9jAAAAAEQAAAEAAQAAAAEAAAG4AAAAbwAAAAFtZGF0AAAAAAAAAH8AAABrKAGviiwUlCDnOaD5Q9rC/5Kb3eFtp2moYAAN6KAi8EFcRAAAoG2AkxDA+y4AABnd4IxaRRqAAAGPOlI9DSAAACTZQARb2igAATJUBRIS8AAGfdAG2L0gABaLQAoS1cAAXjoAAAMAAAMAB0w=",
+      "base64",
+    );
+    await assert.rejects(() => savePhoto({ hotelId: h.id, userId, file: heic, kind: "photo" }), (err) => err instanceof MediaError && /HEIC/.test(err.message));
+    const jpeg = await sharp({ create: { width: 800, height: 600, channels: 3, background: "#808080", noise: { type: "gaussian", mean: 128, sigma: 40 } } }).jpeg().toBuffer();
+    const truncated = jpeg.subarray(0, Math.floor(jpeg.length / 2));
+    await assert.rejects(() => savePhoto({ hotelId: h.id, userId, file: truncated, kind: "photo" }), (err) => err instanceof MediaError);
+  });
+});
+
+describe("web addresses", () => {
+  it("suggests addresses that fit in 63 characters, even for long names already taken", async () => {
+    const { validateSlug } = await import("./hosts");
+    const name = "The Very Long Name Of A Heritage Haveli Hotel By The Lake In Udaipur";
+    const first = await m.hotel.suggestSlug(name);
+    await m.hotel.createHotel({ userId, name, slug: first, type: "hotel", city: "Udaipur", state: "Rajasthan", phone: "9800000008", email: "o@test.in" });
+    const second = await m.hotel.suggestSlug(name);
+    assert.notEqual(second, first);
+    assert.equal(validateSlug(second), null, second);
   });
 });

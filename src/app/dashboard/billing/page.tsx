@@ -76,7 +76,11 @@ export default async function BillingPage() {
                 </div>
               ))}
               <p className="text-xs text-slate-500 sm:col-span-2">
-                {config.billing.provider === "razorpay" ? "You’ll authorise UPI AutoPay or a card on Razorpay’s secure page." : "Development mode: billing is simulated and no money moves."}
+                {config.billing.provider === "razorpay"
+                  ? "You’ll authorise UPI AutoPay or a card on Razorpay’s secure page."
+                  : config.billing.provider === "simulated"
+                    ? "Development mode: billing is simulated and no money moves."
+                    : "Online billing is not configured yet. Contact support to subscribe."}
               </p>
             </div>
           ) : null}

@@ -40,5 +40,5 @@ export async function createPropertyAction(_: { ok: boolean; message: string }, 
     hotelId: hotel.id,
     vars: { owner_name: user.name, property_name: hotel.name, site_url: subdomainHost(hotel.slug), trial_end: formatDate(sub?.trialEndsAt), dashboard_link: appUrl("/dashboard") },
   });
-  redirect("/dashboard/website/rooms?onboarding=1");
+  redirect("/setup");
 }

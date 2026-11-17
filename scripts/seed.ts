@@ -110,6 +110,8 @@ async function main() {
         description:
           "River View Retreat is a family-run boutique hotel on the banks of the Ganga in Tapovan, Rishikesh. Twelve rooms look over the river or our mango garden, and the rooftop café serves home-style vegetarian food all day.\n\nWe are a short walk from Laxman Jhula, the cafés of Tapovan and the start of the Neer Garh waterfall trail, yet far enough from the road for quiet nights.",
         whyDirect: "Book direct for our best available rate, free early check-in when available, and a personal reply from the family.",
+        highlights: ["river", "family_run", "peaceful", "home_food", "family", "adventure"],
+        ownWords: "",
       },
       contact: {
         phone: OWNER.phone,

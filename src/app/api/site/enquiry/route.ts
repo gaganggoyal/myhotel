@@ -3,12 +3,12 @@ import { getDb, schema } from "@/db";
 import { createEnquiry } from "@/lib/bookings";
 import { config } from "@/lib/config";
 import { hashIp, verifyTimestamp } from "@/lib/crypto";
-import { formatDate, nightsBetween, todayIST, whatsappLink } from "@/lib/format";
+import { formatDate, isIsoDate, nightsBetween, todayIST, whatsappLink } from "@/lib/format";
 import { json, sameOrigin, siteForRequest, verifyTurnstile } from "@/lib/public-api";
 import { rateLimit } from "@/lib/ratelimit";
 import { ipFromHeaders } from "@/lib/request";
 
-const date = z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).optional();
+const date = z.union([z.literal(""), z.string().refine(isIsoDate, "Please choose a valid date.")]).optional();
 
 const bodySchema = z.object({
   kind: z.enum(["enquiry", "booking_request"]),
@@ -69,11 +69,15 @@ export async function POST(req: Request) {
   const checkIn = body.checkIn || null;
   const checkOut = body.checkOut || null;
   if (kind === "booking_request" && (!checkIn || !checkOut)) return json({ ok: false, error: "Please choose your check-in and check-out dates." }, 400);
+  // Either date may come alone on a plain enquiry, so each is checked by itself.
+  const today = todayIST();
+  if (checkIn && checkIn < today) return json({ ok: false, error: "Check-in cannot be in the past." }, 400);
+  if (checkOut && checkOut < today) return json({ ok: false, error: "Check-out cannot be in the past." }, 400);
+  const firstDate = checkIn || checkOut;
+  if (firstDate && nightsBetween(today, firstDate) > 730) return json({ ok: false, error: "We take enquiries up to two years ahead." }, 400);
   if (checkIn && checkOut) {
     if (checkOut <= checkIn) return json({ ok: false, error: "Check-out must be after check-in." }, 400);
-    if (checkIn < todayIST()) return json({ ok: false, error: "Check-in cannot be in the past." }, 400);
     if (nightsBetween(checkIn, checkOut) > 60) return json({ ok: false, error: "For stays longer than 60 nights, please call us." }, 400);
-    if (nightsBetween(todayIST(), checkIn) > 730) return json({ ok: false, error: "We take enquiries up to two years ahead." }, 400);
   }
 
   const enquiry = await createEnquiry(site.hotel, content, {

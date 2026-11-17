@@ -2,9 +2,11 @@ import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { getDb, schema } from "@/db";
 import { Card, PageHeader } from "@/components/ui";
+import { requireAdmin } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 
 export default async function AdminEmail({ params }: { params: Promise<{ id: string }> }) {
+  await requireAdmin();
   const { id } = await params;
   const db = await getDb();
   const [m] = await db.select().from(schema.emailMessages).where(eq(schema.emailMessages.id, id));

@@ -7,15 +7,15 @@ import type { EnquiryStatus, ReservationStatus } from "@/db/schema";
 import { bool, fail, int, ok, str, type ActionState } from "@/lib/action";
 import { userActor } from "@/lib/audit";
 import { requireHotel } from "@/lib/auth";
-import { BookingError, createPaymentRequest, createReservation, ENQUIRY_STATUS_LABELS, resolvePayment, setReservationStatus, updateEnquiry } from "@/lib/bookings";
-import { parseRupeesToPaise } from "@/lib/format";
+import { BookingError, createPaymentRequest, createReservation, isEnquiryStatus, resolvePayment, setReservationStatus, updateEnquiry } from "@/lib/bookings";
+import { isIsoDate, parseRupeesToPaise } from "@/lib/format";
 
 const reservationSchema = z.object({
   guestName: z.string().trim().min(2, "Guest name is required.").max(80),
   guestEmail: z.email("Enter the guest's email so they receive confirmations."),
   guestPhone: z.string().trim().min(8, "Enter the guest's phone.").max(20),
-  checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a check-in date."),
-  checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a check-out date."),
+  checkIn: z.string().refine(isIsoDate, "Choose a check-in date."),
+  checkOut: z.string().refine(isIsoDate, "Choose a check-out date."),
   adults: z.number().int().min(1).max(50),
   children: z.number().int().min(0).max(20),
   roomName: z.string().trim().min(1, "Enter the room.").max(120),
@@ -57,10 +57,10 @@ export async function createReservationAction(_: ActionState, fd: FormData): Pro
 
 export async function enquiryUpdateAction(_: ActionState, fd: FormData): Promise<ActionState> {
   const ctx = await requireHotel();
-  const status = str(fd, "status") as EnquiryStatus;
+  const status = str(fd, "status");
   const patch: { status?: EnquiryStatus; ownerNotes?: string } = {};
   if (status) {
-    if (!(status in ENQUIRY_STATUS_LABELS)) return fail("Unknown status.");
+    if (!isEnquiryStatus(status)) return fail("Unknown status.");
     patch.status = status;
   }
   if (fd.has("ownerNotes")) patch.ownerNotes = str(fd, "ownerNotes", 4000);

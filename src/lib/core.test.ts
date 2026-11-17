@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
+import { isPlatformAdmin } from "./auth";
 import { verifyRazorpaySignature } from "./billing/razorpay";
 import { subscriptionServesSite } from "./billing/subscription";
-import { canTransition } from "./bookings";
+import { canTransition, isEnquiryStatus } from "./bookings";
 import { defaultContent, parseContent, publishChecklist } from "./content";
 import { hmacHex, makeRef, signTimestamp, verifyTimestamp } from "./crypto";
 import { evaluateDns, isCloudflareIp } from "./domains/dns";
 import { getTemplate } from "./email/catalog";
 import { renderEmail } from "./email/render";
-import { formatINR, nightsBetween, parseRupeesToPaise, whatsappDigits } from "./format";
+import { formatINR, isIsoDate, nightsBetween, parseRupeesToPaise, whatsappDigits } from "./format";
 import { classifyHost, decodeHostSegment, encodeHostSegment, isApexDomain, normalizeSlug, validateSlug } from "./hosts";
+import { ipFromHeaders } from "./request";
 import { buildUpiIntent, isValidVpa, normalizeUtr, parseUpiUri, qrConsistencyWarning } from "./upi";
 import { verifySvix } from "./webhooks";
 
@@ -50,6 +54,44 @@ describe("slugs", () => {
     assert.ok(validateSlug("ab"));
     assert.ok(validateSlug("-abc"));
     assert.ok(validateSlug("a--b"));
+  });
+  it("keeps real names that merely contain a refused word", () => {
+    for (const slug of ["bhimtal-lake-view", "golden-pagoda-homestay", "hotel-kshitij", "shital-residency", "joyous-homestay", "sussex-house", "kasbi-inn"]) {
+      assert.equal(validateSlug(slug), null, slug);
+    }
+  });
+  it("still refuses brands and profanity used as words", () => {
+    for (const slug of ["bhim-upi-help", "agoda-deals", "oyorooms", "sbi-helpdesk", "help-sbi", "booking-com-offers"]) {
+      assert.match(validateSlug(slug) ?? "", /brand/, slug);
+    }
+    for (const slug of ["sexy-stay", "shit-hotel"]) assert.ok(validateSlug(slug), slug);
+  });
+});
+
+describe("page access", () => {
+  it("is checked by every admin and dashboard page itself, since layouts are skipped on client navigation", () => {
+    const app = path.join(__dirname, "..", "app");
+    for (const [area, check] of [["admin", /requireAdmin\(\)/], ["dashboard", /requireHotel\(|loadEditor\(\)/]] as const) {
+      const pages = readdirSync(path.join(app, area), { recursive: true }).map(String).filter((f) => f.endsWith("page.tsx"));
+      assert.ok(pages.length > 0, area);
+      for (const page of pages) assert.match(readFileSync(path.join(app, area, page), "utf8"), check, `${area}/${page}`);
+    }
+  });
+});
+
+describe("platform admins", () => {
+  it("need a verified email that ADMIN_EMAILS still lists", () => {
+    const verified = new Date();
+    assert.equal(isPlatformAdmin({ email: "admin@example.com", emailVerifiedAt: verified }), true);
+    assert.equal(isPlatformAdmin({ email: "admin@example.com", emailVerifiedAt: null }), false, "registering a listed address is not enough");
+    assert.equal(isPlatformAdmin({ email: "owner@example.com", emailVerifiedAt: verified }), false);
+  });
+});
+
+describe("lead statuses", () => {
+  it("accepts only the statuses we define, not inherited object keys", () => {
+    assert.equal(isEnquiryStatus("won"), true);
+    for (const s of ["toString", "constructor", "__proto__", "WON"]) assert.equal(isEnquiryStatus(s), false, s);
   });
 });
 
@@ -131,6 +173,11 @@ describe("signatures and tokens", () => {
     assert.equal(verifySvix(body, headers, secret), true);
     assert.equal(verifySvix(body, headers, secret, Date.now() + 10 * 60_000), false);
   });
+  it("rejects a Svix timestamp that is not a number, even when correctly signed", () => {
+    const secret = `whsec_${Buffer.from("test-secret-key").toString("base64")}`;
+    const sig = createHmac("sha256", Buffer.from("test-secret-key")).update("msg_2.soon.{}").digest("base64");
+    assert.equal(verifySvix("{}", new Headers({ "svix-id": "msg_2", "svix-timestamp": "soon", "svix-signature": `v1,${sig}` }), secret), false);
+  });
   it("rejects form submissions that are too fast or forged", () => {
     const t = signTimestamp(Date.now() - 5000);
     assert.equal(verifyTimestamp(t), true);
@@ -139,6 +186,15 @@ describe("signatures and tokens", () => {
   });
   it("makes unambiguous references", () => {
     assert.match(makeRef("RVR"), /^RVR-[2-9A-HJ-NP-Z]{6}$/);
+  });
+});
+
+describe("client IP", () => {
+  it("reads only the edge's header, so visitors cannot forge their way past rate limits", () => {
+    const forged = { "cf-connecting-ip": "6.6.6.6", "x-real-ip": "6.6.6.7" };
+    assert.equal(ipFromHeaders(new Headers({ ...forged, "x-forwarded-for": "6.6.6.8, 203.0.113.9" }), "x-forwarded-for"), "203.0.113.9");
+    assert.equal(ipFromHeaders(new Headers({ "cf-connecting-ip": "6.6.6.6", "x-real-ip": "198.51.100.4" }), "x-real-ip"), "198.51.100.4");
+    assert.equal(ipFromHeaders(new Headers(forged), "x-forwarded-for"), "unknown");
   });
 });
 
@@ -181,5 +237,9 @@ describe("formatting", () => {
     assert.equal(nightsBetween("2026-12-12", "2026-12-15"), 3);
     assert.equal(whatsappDigits("98100 00000"), "919810000000");
     assert.equal(whatsappDigits("+91 98100 00000"), "919810000000");
+  });
+  it("accepts only real calendar dates", () => {
+    assert.equal(isIsoDate("2028-02-29"), true);
+    for (const d of ["2027-02-29", "2026-02-30", "2026-13-01", "0000-01-01", "2026-1-01", ""]) assert.equal(isIsoDate(d), false, d);
   });
 });

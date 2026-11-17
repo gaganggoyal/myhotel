@@ -5,13 +5,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { bool, fail, int, list, ok, str, type ActionState } from "@/lib/action";
-import { audit, userActor } from "@/lib/audit";
+import { userActor } from "@/lib/audit";
 import { requireHotel } from "@/lib/auth";
 import { getPlan } from "@/lib/billing/plans";
 import { getSubscription } from "@/lib/billing/subscription";
 import { contactSchema, newId, PROPERTY_TYPES, policiesSchema, roomSchema, slugifyRoom, TEMPLATES, type SiteContent } from "@/lib/content";
 import { parseRupeesToPaise } from "@/lib/format";
-import { HotelError, updateDraft } from "@/lib/hotel";
+import { deletePhoto, HotelError, updateDraft } from "@/lib/hotel";
 
 const SAVED = "Saved to your draft. Publish when you’re ready for guests to see it.";
 
@@ -53,7 +53,7 @@ export async function savePropertyAction(_: ActionState, fd: FormData) {
   if (name.length < 2) return fail("Property name is required.");
   return edit(fd, (c) => ({
     ...c,
-    property: { name, type: type as SiteContent["property"]["type"], tagline: str(fd, "tagline", 120), description: str(fd, "description", 4000), whyDirect: str(fd, "whyDirect", 160) },
+    property: { ...c.property, name, type: type as SiteContent["property"]["type"], tagline: str(fd, "tagline", 120), description: str(fd, "description", 4000), whyDirect: str(fd, "whyDirect", 160) },
     hero: { ...c.hero, headline: str(fd, "headline", 90), subheadline: str(fd, "subheadline", 200), mediaIds: ids(fd, "heroMediaIds").slice(0, 6) },
   }));
 }
@@ -267,25 +267,17 @@ export async function photoAction(_: ActionState, fd: FormData) {
   const ctx = await requireHotel("manager");
   const id = str(fd, "id");
   const db = await getDb();
-  const where = and(eq(schema.media.id, id), eq(schema.media.hotelId, ctx.hotel.id));
   if (str(fd, "op") === "delete") {
-    // Soft delete: a published version may still reference the file until the next publish.
-    await db.update(schema.media).set({ deletedAt: new Date() }).where(where);
-    await audit(ctx.hotel.id, userActor(ctx.user), "media.deleted", {}, { target: id });
-    return edit(fd, (c) => {
-      const drop = (arr: string[]) => arr.filter((x) => x !== id);
-      return {
-        ...c,
-        hero: { ...c.hero, mediaIds: drop(c.hero.mediaIds) },
-        gallery: { mediaIds: drop(c.gallery.mediaIds) },
-        dining: { ...c.dining, mediaIds: drop(c.dining.mediaIds) },
-        rooms: c.rooms.map((r) => ({ ...r, mediaIds: drop(r.mediaIds) })),
-        logoMediaId: c.logoMediaId === id ? null : c.logoMediaId,
-        seo: { ...c.seo, ogMediaId: c.seo.ogMediaId === id ? null : c.seo.ogMediaId },
-      };
-    }, "Photo deleted.");
+    try {
+      await deletePhoto(ctx.hotel.id, userActor(ctx.user), id);
+    } catch (err) {
+      if (err instanceof HotelError) return fail(err.message);
+      throw err;
+    }
+    revalidatePath("/dashboard", "layout");
+    return ok("Photo deleted.");
   }
-  await db.update(schema.media).set({ alt: str(fd, "alt", 200) }).where(where);
+  await db.update(schema.media).set({ alt: str(fd, "alt", 200) }).where(and(eq(schema.media.id, id), eq(schema.media.hotelId, ctx.hotel.id)));
   revalidatePath("/dashboard/website/photos");
   return ok("Description saved.");
 }

@@ -23,15 +23,34 @@ export const RESERVED_SLUGS = new Set([
   "myhotel", "platform", "internal", "localhost",
 ]);
 
+/**
+ * How a refused term matches the slug. Short terms hide inside real names (Bhimtal, Pagoda,
+ * Kshitij, Sussex), so they match a whole hyphen-separated word ("word") or a word's start
+ * ("start"); long, unambiguous terms match anywhere ("any").
+ */
+type TermMatch = "any" | "start" | "word";
+
 /** Brands and impersonation bait we refuse as a subdomain on the platform's own domain. */
-const BLOCKED_SUBSTRINGS = [
-  "paytm", "phonepe", "googlepay", "gpay", "razorpay", "bhim", "npci", "makemytrip", "goibibo",
-  "booking-com", "bookingcom", "airbnb", "agoda", "expedia", "tripadvisor", "oyo", "taj-hotels",
-  "tajhotels", "marriott", "hilton", "hyatt", "ihg", "itc-hotels", "oberoi", "irctc", "sbi-",
-  "hdfc", "icici", "axisbank", "kotak", "gov-in", "government", "ministry", "police",
+const BLOCKED_BRANDS: [string, TermMatch][] = [
+  ["paytm", "any"], ["phonepe", "any"], ["googlepay", "any"], ["gpay", "any"], ["razorpay", "any"],
+  ["bhim", "word"], ["bhimupi", "any"], ["npci", "any"], ["makemytrip", "any"], ["goibibo", "any"],
+  ["booking-com", "any"], ["bookingcom", "any"], ["airbnb", "any"], ["agoda", "start"], ["expedia", "any"],
+  ["tripadvisor", "any"], ["oyo", "start"], ["taj-hotels", "any"], ["tajhotels", "any"], ["marriott", "any"],
+  ["hilton", "any"], ["hyatt", "any"], ["ihg", "word"], ["itc-hotels", "any"], ["oberoi", "any"],
+  ["irctc", "any"], ["sbi", "word"], ["hdfc", "any"], ["icici", "any"], ["axisbank", "any"], ["kotak", "any"],
+  ["gov-in", "any"], ["government", "any"], ["ministry", "any"], ["police", "any"],
 ];
 
-const PROFANITY = ["fuck", "shit", "bitch", "chutiya", "madarchod", "bhenchod", "randi", "porn", "sex"];
+const PROFANITY: [string, TermMatch][] = [
+  ["fuck", "any"], ["shit", "word"], ["bitch", "any"], ["chutiya", "any"], ["madarchod", "any"],
+  ["bhenchod", "any"], ["randi", "word"], ["porn", "any"], ["sex", "start"],
+];
+
+function containsTerm(slug: string, [term, match]: [string, TermMatch]): boolean {
+  if (match === "any") return slug.includes(term);
+  const words = slug.split("-");
+  return words.some((w) => (match === "word" ? w === term : w.startsWith(term)));
+}
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/;
 
@@ -54,8 +73,8 @@ export function validateSlug(slug: string): string | null {
   if (!SLUG_RE.test(slug)) return "Use lowercase letters, digits and hyphens (not at the start or end).";
   if (slug.includes("--")) return "Avoid consecutive hyphens.";
   if (RESERVED_SLUGS.has(slug)) return "This name is reserved.";
-  if (BLOCKED_SUBSTRINGS.some((b) => slug.includes(b))) return "This name looks like another brand. Choose your property's own name.";
-  if (PROFANITY.some((w) => slug.includes(w))) return "Choose a different name.";
+  if (BLOCKED_BRANDS.some((b) => containsTerm(slug, b))) return "This name looks like another brand. Choose your property's own name.";
+  if (PROFANITY.some((w) => containsTerm(slug, w))) return "Choose a different name.";
   return null;
 }
 

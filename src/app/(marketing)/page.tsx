@@ -12,10 +12,10 @@ export const metadata: Metadata = {
 };
 
 const steps = [
-  { t: "Tell us about your property", d: "Name, contact, rooms, photos and policies, in simple forms. No design skills needed." },
-  { t: "Pick a design", d: "Three hotel templates (Heritage, Coastal, Modern), your colours and English or Hindi." },
-  { t: "Publish in minutes", d: `Go live at yourhotel.${config.rootHostname} the same day. Preview before every change.` },
-  { t: "Connect your domain", d: "Point www.yourhotel.com to us with one DNS record. We handle the SSL certificate." },
+  { t: "Upload your photos", d: "Pick them straight from your phone. We resize them for fast pages and you choose the cover." },
+  { t: "Add rooms and prices", d: "Tap what you offer: room types, beds, facilities, check-in times and your cancellation rule." },
+  { t: "We write your website", d: "Your home page, room descriptions, FAQ and Google text, written for you in English or Hindi." },
+  { t: "Go live", d: `One tap publishes at yourhotel.${config.rootHostname}. Connect www.yourhotel.com whenever you like.` },
 ];
 
 const features = [
@@ -54,7 +54,7 @@ export default function LandingPage() {
             <p className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-amber-800">For independent hotels, homestays and guest houses</p>
             <h1 className="mt-5 text-4xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-5xl">Your hotel’s own direct-booking website, live today.</h1>
             <p className="mt-5 max-w-xl text-lg text-slate-600">
-              A professional, mobile-first website with direct enquiries, WhatsApp, your own UPI payment details and guest emails, on your own domain. No developer and no commission.
+              Upload your photos, add your rooms and prices, and we write and publish a professional, mobile-first website for you, with direct enquiries, WhatsApp and your own UPI payments. No developer, no writing and no commission.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <LinkButton href="/signup" variant="brand" className="px-6 py-3 text-base">
@@ -106,7 +106,8 @@ export default function LandingPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">From sign-up to live site in an afternoon</h2>
+        <h2 className="text-3xl font-bold tracking-tight text-slate-900">Photos and details in. Website out.</h2>
+        <p className="mt-2 text-slate-600">Most owners finish in about 10 minutes, on their phone.</p>
         <ol className="mt-10 grid gap-6 md:grid-cols-4">
           {steps.map((s, i) => (
             <li key={s.t} className="rounded-xl border border-slate-200 p-5">

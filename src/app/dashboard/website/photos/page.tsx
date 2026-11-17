@@ -2,14 +2,12 @@ import { ActionButton, ActionForm } from "@/components/forms";
 import { MediaPicker, PhotoUploader } from "@/components/media";
 import { Card, EmptyState, Input, PageHeader } from "@/components/ui";
 import { photoAction, saveGalleryAction } from "../actions";
-import { loadEditor, OnboardingSteps, Revision } from "../shared";
+import { loadEditor, Revision } from "../shared";
 
-export default async function PhotosEditor({ searchParams }: { searchParams: Promise<{ onboarding?: string }> }) {
+export default async function PhotosEditor() {
   const { ctx, content: c, revision, photos, media } = await loadEditor();
-  const onboarding = (await searchParams).onboarding === "1";
   return (
     <>
-      <OnboardingSteps step={3} show={onboarding} />
       <PageHeader title="Photos" description="Upload once, then use photos on the home page, gallery and room pages. Guests trust real photos over stock images." actions={<PhotoUploader />} />
 
       {photos.length ? (

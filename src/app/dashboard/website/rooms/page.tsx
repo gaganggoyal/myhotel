@@ -2,18 +2,16 @@ import { ActionButton } from "@/components/forms";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { formatINR } from "@/lib/format";
 import { roomOrderAction } from "../actions";
-import { loadEditor, OnboardingSteps } from "../shared";
+import { loadEditor } from "../shared";
 
-export default async function RoomsEditor({ searchParams }: { searchParams: Promise<{ onboarding?: string }> }) {
+export default async function RoomsEditor() {
   const { content: c, revision } = await loadEditor();
-  const onboarding = (await searchParams).onboarding === "1";
   return (
     <>
-      <OnboardingSteps step={2} show={onboarding} />
       <PageHeader
         title="Rooms"
         description="One entry per room type (not per room number). Prices are shown as a guide “from” price, never as a live rate."
-        actions={<LinkButton href={`/dashboard/website/rooms/new${onboarding ? "?onboarding=1" : ""}`}>Add room type</LinkButton>}
+        actions={<LinkButton href="/dashboard/website/rooms/new">Add room type</LinkButton>}
       />
       {c.rooms.length ? (
         <div className="space-y-3">

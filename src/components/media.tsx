@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { buttonClass, cx } from "./ui";
+import { jpegName, shrinkImage } from "./upload";
 
 export type PickerMedia = { id: string; alt: string; thumb: string };
 
@@ -17,7 +18,7 @@ export function PhotoUploader({ kind = "photo", label = "Upload photos" }: { kin
         {busy ? "Uploading…" : label}
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/avif,image/heic"
+          accept="image/*"
           multiple={kind === "photo"}
           className="sr-only"
           disabled={busy}
@@ -28,7 +29,7 @@ export function PhotoUploader({ kind = "photo", label = "Upload photos" }: { kin
             setMessage(null);
             const fd = new FormData();
             fd.set("kind", kind);
-            files.forEach((f) => fd.append("files", f));
+            for (const f of files) fd.append("files", kind === "photo" ? await shrinkImage(f) : f, kind === "photo" ? jpegName(f.name) : f.name);
             try {
               const res = await fetch("/api/dashboard/media", { method: "POST", body: fd });
               const json = (await res.json()) as { ok: boolean; saved?: unknown[]; error?: string };

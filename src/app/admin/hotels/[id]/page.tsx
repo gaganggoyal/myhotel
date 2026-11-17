@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getDb, schema } from "@/db";
 import { ActionButton, ActionForm } from "@/components/forms";
 import { Badge, Card, Field, Input, PageHeader, Table, Td } from "@/components/ui";
+import { requireAdmin } from "@/lib/auth";
 import { STATUS_LABELS } from "@/lib/billing/subscription";
 import { config, siteOrigin, subdomainHost } from "@/lib/config";
 import { DOMAIN_STATUS_COPY } from "@/lib/domains/service";
@@ -10,6 +11,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { adminHotelAction } from "../../actions";
 
 export default async function AdminHotel({ params }: { params: Promise<{ id: string }> }) {
+  await requireAdmin();
   const { id } = await params;
   const db = await getDb();
   const [hotel] = await db.select().from(schema.hotels).where(eq(schema.hotels.id, id));

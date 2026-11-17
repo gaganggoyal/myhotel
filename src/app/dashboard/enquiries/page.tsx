@@ -4,19 +4,19 @@ import { getDb, schema } from "@/db";
 import type { EnquiryStatus } from "@/db/schema";
 import { Badge, EmptyState, PageHeader, Table, Td, cx } from "@/components/ui";
 import { requireHotel } from "@/lib/auth";
-import { ENQUIRY_STATUS_LABELS } from "@/lib/bookings";
+import { ENQUIRY_STATUS_LABELS, isEnquiryStatus } from "@/lib/bookings";
 import { formatDate, formatDateTime } from "@/lib/format";
 
 const FILTERS: (EnquiryStatus | "all")[] = ["all", "new", "contacted", "quoted", "won", "lost", "spam"];
 
 export default async function EnquiriesPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
   const { hotel, role } = await requireHotel();
-  const status = (await searchParams).status as EnquiryStatus | undefined;
+  const { status } = await searchParams;
   const db = await getDb();
   const rows = await db
     .select()
     .from(schema.enquiries)
-    .where(and(eq(schema.enquiries.hotelId, hotel.id), isNull(schema.enquiries.anonymizedAt), status && status in ENQUIRY_STATUS_LABELS ? eq(schema.enquiries.status, status) : undefined))
+    .where(and(eq(schema.enquiries.hotelId, hotel.id), isNull(schema.enquiries.anonymizedAt), status && isEnquiryStatus(status) ? eq(schema.enquiries.status, status) : undefined))
     .orderBy(desc(schema.enquiries.createdAt))
     .limit(200);
 

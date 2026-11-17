@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { AMENITIES, amenityLabel, isCatalogAmenity } from "@/lib/amenities";
+import { AMENITIES, amenityLabel, highlightFor, isCatalogAmenity, type Highlight } from "@/lib/amenities";
 import { findPaymentRequestByToken } from "@/lib/bookings";
 import { config } from "@/lib/config";
 import type { Room, SiteContent } from "@/lib/content";
@@ -340,13 +340,19 @@ export function SiteFrame({ site, children }: { site: LoadedSite; children: Reac
   );
 }
 
+/** Whether an offline site's maintenance page may name the hotel and show its phone (see offlineReason). */
+function offlineShowsHotel(site: LoadedSite): boolean {
+  return site.offlineReason === "paused" || site.offlineReason === "billing";
+}
+
 export function OfflinePage({ site }: { site: LoadedSite }) {
   const tr = translator(site.content.locale);
-  const phone = telLink(site.content.contact.phone);
+  const showHotel = offlineShowsHotel(site);
+  const phone = showHotel ? telLink(site.content.contact.phone) : null;
   return (
     <main lang={site.content.locale} className="site flex min-h-screen items-center justify-center bg-neutral-50 px-6 text-center" style={themeVars(site.content)}>
       <div className="max-w-md">
-        <p className="text-sm uppercase tracking-widest text-neutral-500">{site.content.property.name}</p>
+        {showHotel ? <p className="text-sm uppercase tracking-widest text-neutral-500">{site.content.property.name}</p> : null}
         <h1 className="mt-3 text-2xl font-semibold text-neutral-900">{tr("unavailableTitle")}</h1>
         <p className="mt-3 text-neutral-600">{tr("unavailableBody")}</p>
         {phone ? (
@@ -371,6 +377,10 @@ function HomePage({ ctx }: { ctx: Ctx }) {
   const rooms = c.rooms.filter((r) => r.visible);
   const headline = c.hero.headline || c.property.name;
   const sub = c.hero.subheadline || c.property.tagline;
+  const highlights = c.property.highlights
+    .map(highlightFor)
+    .filter((h): h is Highlight => Boolean(h))
+    .slice(0, 6);
 
   const hero =
     style.hero === "split" ? (
@@ -424,6 +434,18 @@ function HomePage({ ctx }: { ctx: Ctx }) {
               </div>
             </div>
             <aside className={`h-fit space-y-3 p-5 text-sm ${style.card}`}>
+              {highlights.length ? (
+                <ul className="space-y-1.5 border-b border-black/5 pb-3">
+                  {highlights.map((h) => (
+                    <li key={h.key} className="flex gap-2 text-neutral-900">
+                      <span aria-hidden="true" className="text-[var(--a)]">
+                        ✓
+                      </span>
+                      {h[ctx.locale]}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <p className="font-semibold text-neutral-900">{tr("times", { in: c.policies.checkIn, out: c.policies.checkOut })}</p>
               <p>{addressLine(c)}</p>
               <a href={ctx.href("/location")} className="font-semibold text-[var(--p)]">
@@ -840,7 +862,9 @@ function enquiryProps(ctx: Ctx, search: Search) {
   const policySummary = [
     c.booking.mode === "request" ? ctx.tr("requestNote") : "",
     c.policies.cancellation ? `${ctx.tr("cancellation")}: ${c.policies.cancellation}` : "",
+    c.policies.payment ? `${ctx.tr("payment")}: ${c.policies.payment}` : "",
     c.policies.taxNote ? `${ctx.tr("taxes")}: ${c.policies.taxNote}` : "",
+    c.policies.houseRules ? `${ctx.tr("houseRules")}: ${c.policies.houseRules}` : "",
     ctx.tr("times", { in: c.policies.checkIn, out: c.policies.checkOut }),
   ].filter(Boolean);
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
@@ -1218,6 +1242,9 @@ const PAGE_TITLES: Record<string, DictKey> = {
 export function siteMetadata(site: LoadedSite, segments: string[]): Metadata {
   const c = site.content;
   const tr = translator(c.locale);
+  if (site.availability === "offline") {
+    return { title: { absolute: offlineShowsHotel(site) ? c.property.name : tr("unavailableTitle") }, robots: { index: false, follow: false } };
+  }
   const [first, second] = segments;
   const room = first === "rooms" && second ? c.rooms.find((r) => r.slug === second) : undefined;
   const baseTitle = c.seo.title || `${c.property.name}${c.contact.address.city ? `, ${c.contact.address.city}` : ""}`;
@@ -1226,7 +1253,7 @@ export function siteMetadata(site: LoadedSite, segments: string[]): Metadata {
   const path = segments.length ? `/${segments.join("/")}` : "/";
   const ogId = c.seo.ogMediaId ?? c.hero.mediaIds[0] ?? c.gallery.mediaIds[0];
   const og = ogId ? site.media.get(ogId) : undefined;
-  const noindex = site.mode === "preview" || site.availability === "offline" || first === "pay" || first === "enquire";
+  const noindex = site.mode === "preview" || first === "pay" || first === "enquire";
   return {
     title: { absolute: title },
     description,

@@ -1,4 +1,4 @@
-import { BookingError, findPaymentRequestByToken, guestReportPayment } from "@/lib/bookings";
+import { BookingError, canTransition, findPaymentRequestByToken, guestReportPayment } from "@/lib/bookings";
 import { hashIp } from "@/lib/crypto";
 import { MediaError, saveProof } from "@/lib/media";
 import { json, sameOrigin, siteForRequest } from "@/lib/public-api";
@@ -12,6 +12,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const site = await siteForRequest(req);
   const found = await findPaymentRequestByToken(token);
   if (!site || !found || found.hotel.id !== site.hotel.id) return json({ ok: false, error: "Payment link not found." }, 404);
+  // Checked before storing a screenshot, so closed requests never collect uploads.
+  if (!canTransition(found.request.status, "guest_reported", "guest")) return json({ ok: false, error: "This payment can no longer be updated. Contact the hotel." }, 400);
 
   const ip = ipFromHeaders(req.headers);
   if (!(await rateLimit(`payrep:${token}:${hashIp(ip)}`, 6, 3600))) return json({ ok: false, error: "Too many attempts. Please contact the hotel." }, 429);

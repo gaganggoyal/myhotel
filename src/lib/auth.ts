@@ -73,9 +73,22 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
+/**
+ * Platform staff: a verified email that is listed in ADMIN_EMAILS. Checked on every request, so
+ * removing an address from ADMIN_EMAILS revokes access, and registering a listed address without
+ * being able to receive its mail grants nothing.
+ */
+export function isPlatformAdmin(user: Pick<SessionUser, "email" | "emailVerifiedAt">): boolean {
+  return Boolean(user.emailVerifiedAt) && isAdminEmail(user.email);
+}
+
+/**
+ * Call at the top of every admin page and action, not only in the admin layout: a client-side
+ * navigation re-renders just the changed segments, so the layout's check never runs for it.
+ */
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
-  if (!user.isPlatformAdmin) redirect("/dashboard");
+  if (!isPlatformAdmin(user)) redirect("/dashboard");
   return user;
 }
 
@@ -111,7 +124,7 @@ export async function requireHotel(minRole: schema.Role = "front_desk"): Promise
   const user = await requireUser();
   const ctx = await getHotelContext();
   if (!ctx) {
-    if (user.isPlatformAdmin) redirect("/admin");
+    if (isPlatformAdmin(user)) redirect("/admin");
     redirect("/onboarding");
   }
   if (ROLE_RANK[ctx.role] < ROLE_RANK[minRole]) redirect("/dashboard?denied=1");

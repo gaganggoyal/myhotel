@@ -11,7 +11,8 @@ export function verifySvix(rawBody: string, headers: Headers, secret: string, no
   const ts = headers.get("svix-timestamp");
   const sigs = headers.get("svix-signature");
   if (!id || !ts || !sigs || !secret) return false;
-  if (Math.abs(now / 1000 - Number(ts)) > 300) return false;
+  // Written so a non-numeric timestamp (NaN) fails too; "> 300" would let it through.
+  if (!(Math.abs(now / 1000 - Number(ts)) <= 300)) return false;
   const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
   const expected = createHmac("sha256", key).update(`${id}.${ts}.${rawBody}`).digest("base64");
   return sigs.split(" ").some((part) => {

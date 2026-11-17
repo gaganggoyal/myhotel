@@ -15,7 +15,10 @@ function list(value: string | undefined): string[] {
 
 // The development fallbacks below are public (this file is in the repo), so production never uses them.
 function productionAppSecret(): string {
-  console.warn("APP_SECRET is not set: using a random per-process secret. Form tokens will not survive restarts or work across instances.");
+  // `next build` loads this module in every worker; warn when serving, not once per worker.
+  if (env.NEXT_PHASE !== "phase-production-build") {
+    console.warn("APP_SECRET is not set: using a random per-process secret. Form tokens will not survive restarts or work across instances.");
+  }
   return randomBytes(32).toString("hex");
 }
 
@@ -30,9 +33,16 @@ export const config = {
   rootHostname,
   protocol: env.APP_PROTOCOL ?? (isProd ? "https" : "http"),
   appSecret: env.APP_SECRET || (isProd ? productionAppSecret() : "dev-only-secret-change-me"),
-  adminEmails: list(env.ADMIN_EMAILS ?? "admin@example.com"),
+  /** Empty in production when unset: nobody can become an admin by registering a sample address. */
+  adminEmails: list(env.ADMIN_EMAILS ?? (isProd ? "" : "admin@example.com")),
   /** empty in production when unset, which disables /api/cron/run */
   cronSecret: env.CRON_SECRET || (isProd ? "" : "dev-cron-secret"),
+
+  /**
+   * The one request header our own edge sets to the visitor's IP; anything else can be forged
+   * by the client. Defaults follow DOMAIN_PROVIDER. For x-forwarded-for the last entry is used.
+   */
+  clientIpHeader: (env.CLIENT_IP_HEADER || { cloudflare: "cf-connecting-ip", vercel: "x-real-ip" }[env.DOMAIN_PROVIDER ?? ""] || "x-forwarded-for").toLowerCase(),
 
   storageDriver: (env.STORAGE_DRIVER ?? "local") as "local" | "s3",
 
@@ -59,7 +69,8 @@ export const config = {
   },
 
   billing: {
-    provider: (env.BILLING_PROVIDER ?? "simulated") as "simulated" | "razorpay",
+    /** "none" in production when unset, which refuses to activate plans rather than simulating free ones. */
+    provider: (env.BILLING_PROVIDER || (isProd ? "none" : "simulated")) as "simulated" | "razorpay" | "none",
     razorpayKeyId: env.RAZORPAY_KEY_ID ?? "",
     razorpayKeySecret: env.RAZORPAY_KEY_SECRET ?? "",
     razorpayWebhookSecret: env.RAZORPAY_WEBHOOK_SECRET ?? "",

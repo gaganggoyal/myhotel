@@ -60,6 +60,17 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           </>
         }
       />
+      {!hotel.publishedVersionId && role !== "front_desk" ? (
+        <div className="mb-4 flex flex-col gap-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div>
+            <p className="text-lg font-bold">Finish your website in about 10 minutes</p>
+            <p className="mt-1 text-sm text-amber-50">Upload your photos, add your rooms and prices, and we’ll write and publish the rest for you.</p>
+          </div>
+          <LinkButton href="/setup" variant="secondary" className="shrink-0 border-white px-5 py-3">
+            Continue setup →
+          </LinkButton>
+        </div>
+      ) : null}
       {denied ? (
         <div className="mb-4">
           <Alert tone="warn">That area is limited to owners and managers.</Alert>
