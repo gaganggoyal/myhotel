@@ -340,13 +340,19 @@ export function SiteFrame({ site, children }: { site: LoadedSite; children: Reac
   );
 }
 
+/** Whether an offline site's maintenance page may name the hotel and show its phone (see offlineReason). */
+function offlineShowsHotel(site: LoadedSite): boolean {
+  return site.offlineReason === "paused" || site.offlineReason === "billing";
+}
+
 export function OfflinePage({ site }: { site: LoadedSite }) {
   const tr = translator(site.content.locale);
-  const phone = telLink(site.content.contact.phone);
+  const showHotel = offlineShowsHotel(site);
+  const phone = showHotel ? telLink(site.content.contact.phone) : null;
   return (
     <main lang={site.content.locale} className="site flex min-h-screen items-center justify-center bg-neutral-50 px-6 text-center" style={themeVars(site.content)}>
       <div className="max-w-md">
-        <p className="text-sm uppercase tracking-widest text-neutral-500">{site.content.property.name}</p>
+        {showHotel ? <p className="text-sm uppercase tracking-widest text-neutral-500">{site.content.property.name}</p> : null}
         <h1 className="mt-3 text-2xl font-semibold text-neutral-900">{tr("unavailableTitle")}</h1>
         <p className="mt-3 text-neutral-600">{tr("unavailableBody")}</p>
         {phone ? (
@@ -1236,6 +1242,9 @@ const PAGE_TITLES: Record<string, DictKey> = {
 export function siteMetadata(site: LoadedSite, segments: string[]): Metadata {
   const c = site.content;
   const tr = translator(c.locale);
+  if (site.availability === "offline") {
+    return { title: { absolute: offlineShowsHotel(site) ? c.property.name : tr("unavailableTitle") }, robots: { index: false, follow: false } };
+  }
   const [first, second] = segments;
   const room = first === "rooms" && second ? c.rooms.find((r) => r.slug === second) : undefined;
   const baseTitle = c.seo.title || `${c.property.name}${c.contact.address.city ? `, ${c.contact.address.city}` : ""}`;
@@ -1244,7 +1253,7 @@ export function siteMetadata(site: LoadedSite, segments: string[]): Metadata {
   const path = segments.length ? `/${segments.join("/")}` : "/";
   const ogId = c.seo.ogMediaId ?? c.hero.mediaIds[0] ?? c.gallery.mediaIds[0];
   const og = ogId ? site.media.get(ogId) : undefined;
-  const noindex = site.mode === "preview" || site.availability === "offline" || first === "pay" || first === "enquire";
+  const noindex = site.mode === "preview" || first === "pay" || first === "enquire";
   return {
     title: { absolute: title },
     description,

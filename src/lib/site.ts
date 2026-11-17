@@ -17,6 +17,12 @@ export type LoadedSite = {
   media: Map<string, MediaInfo>;
   /** "live" renders the site; "offline" renders a neutral maintenance page. */
   availability: "live" | "offline";
+  /**
+   * Why an offline site is offline (null when live). Only "paused" (taken offline by the owner) and
+   * "billing" sites may name the hotel and show its phone: a "draft" site has never been
+   * published, and a "suspended" one was taken down by staff, perhaps for impersonation.
+   */
+  offlineReason: "draft" | "suspended" | "paused" | "billing" | null;
   mode: "live" | "preview";
   /** Prefix for internal links: "" on a hotel host, "/preview" in the dashboard preview. */
   basePath: string;
@@ -80,7 +86,16 @@ async function resolveUncached(host: string): Promise<Resolution> {
   }
 
   const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.hotelId, hotel.id));
-  const online = !hotel.adminSuspendedAt && hotel.siteStatus === "live" && Boolean(hotel.publishedVersionId) && subscriptionServesSite(sub ?? null);
+  const offlineReason: LoadedSite["offlineReason"] = hotel.adminSuspendedAt
+    ? "suspended"
+    : !hotel.publishedVersionId
+      ? "draft"
+      : hotel.siteStatus !== "live"
+        ? "paused"
+        : !subscriptionServesSite(sub ?? null)
+          ? "billing"
+          : null;
+  const online = offlineReason === null;
 
   let content: SiteContent | null = null;
   if (hotel.publishedVersionId) {
@@ -96,6 +111,7 @@ async function resolveUncached(host: string): Promise<Resolution> {
       content,
       media: online ? await mediaMapFor(hotel.id, referencedMediaIds(content)) : new Map(),
       availability: online ? "live" : "offline",
+      offlineReason,
       mode: "live",
       basePath: "",
       canonicalOrigin: siteOrigin(canonicalHost),
@@ -111,6 +127,7 @@ export async function loadPreview(hotel: Hotel): Promise<LoadedSite> {
     content,
     media: await mediaMapFor(hotel.id, referencedMediaIds(content)),
     availability: "live",
+    offlineReason: null,
     mode: "preview",
     basePath: "/preview",
     canonicalOrigin: siteOrigin(subdomainHost(hotel.slug)),

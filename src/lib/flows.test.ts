@@ -180,3 +180,51 @@ describe("billing jobs", () => {
     assert.ok(s!.currentPeriodEnd! > new Date(Date.now() + 360 * 86_400_000));
   });
 });
+
+// The suites below reuse "lake-view-stay": published, subscribed and with UPI details by now.
+async function lakeStay() {
+  const { eq } = await import("drizzle-orm");
+  const db = await m.db.getDb();
+  const [h] = await db.select().from(m.db.schema.hotels).where(eq(m.db.schema.hotels.slug, "lake-view-stay"));
+  return h;
+}
+
+describe("offline sites", () => {
+  it("name the hotel only when it was published and is not suspended by staff", async () => {
+    const { eq } = await import("drizzle-orm");
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { OfflinePage, siteMetadata } = await import("@/site/render");
+    const db = await m.db.getDb();
+    const actor = { userId, label: "o" };
+    const offline = async (slug: string) => {
+      const r = await m.site.resolveHost(`${slug}.localhost:3000`);
+      if (r.type !== "site") throw new Error(`${slug} did not resolve`);
+      assert.equal(r.site.availability, "offline");
+      return { site: r.site, html: renderToStaticMarkup(createElement(OfflinePage, { site: r.site })), meta: JSON.stringify(siteMetadata(r.site, [])) };
+    };
+
+    // Never published: the draft's name and phone stay private.
+    await m.hotel.createHotel({ userId, name: "Secret Draft Stay", slug: "secret-draft", type: "homestay", city: "Ooty", state: "Tamil Nadu", phone: "9800000007", email: "o@test.in" });
+    let page = await offline("secret-draft");
+    assert.equal(page.site.offlineReason, "draft");
+    assert.ok(!page.html.includes("Secret Draft Stay") && !page.html.includes("9800000007"));
+    assert.ok(!page.meta.includes("Secret Draft Stay"));
+
+    // Suspended by staff: nothing that could keep an impersonator reachable.
+    const h = await lakeStay();
+    await db.update(m.db.schema.hotels).set({ adminSuspendedAt: new Date(), adminSuspendReason: "test" }).where(eq(m.db.schema.hotels.id, h.id));
+    m.cache.invalidateHotel(h.id);
+    page = await offline("lake-view-stay");
+    assert.equal(page.site.offlineReason, "suspended");
+    assert.ok(!page.html.includes("Lake Stay") && !page.html.includes("tel:"));
+
+    // Taken offline by the owner: guests can still call.
+    await db.update(m.db.schema.hotels).set({ adminSuspendedAt: null, adminSuspendReason: null }).where(eq(m.db.schema.hotels.id, h.id));
+    await m.hotel.setSiteOnline(await lakeStay(), false, actor);
+    page = await offline("lake-view-stay");
+    assert.equal(page.site.offlineReason, "paused");
+    assert.ok(page.html.includes("Lake Stay") && page.html.includes("tel:9800000001"));
+    await m.hotel.setSiteOnline(await lakeStay(), true, actor);
+  });
+});
