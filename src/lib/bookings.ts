@@ -4,10 +4,11 @@ import type { EnquiryKind, EnquiryStatus, PaymentRequestStatus, ReservationStatu
 import { audit, GUEST_ACTOR, type AuditActor } from "./audit";
 import { appUrl, siteOrigin, subdomainHost } from "./config";
 import type { SiteContent } from "./content";
-import { makeRef, randomToken, refPrefix } from "./crypto";
+import { makeRef, randomToken, refPrefix, sha256 } from "./crypto";
 import { activeDomainFor } from "./domains/service";
 import { hotelInbox, sendHotelEmail } from "./email/send";
 import { formatDate, formatINR, isIsoDate, nightsBetween } from "./format";
+import { rateLimit } from "./ratelimit";
 
 const { enquiries, reservations, reservationEvents, paymentRequests, paymentMethods, hotels } = schema;
 type Reservation = typeof reservations.$inferSelect;
@@ -110,6 +111,8 @@ export type EnquiryInput = {
   source: { path?: string; cta?: string; referrer?: string; utm?: Record<string, string> };
 };
 
+const GUEST_ACKS_PER_DAY = 5;
+
 export async function createEnquiry(hotel: { id: string; slug: string }, content: SiteContent, input: EnquiryInput) {
   const db = await getDb();
   const room = input.roomId ? content.rooms.find((r) => r.id === input.roomId && r.visible) : undefined;
@@ -151,7 +154,11 @@ export async function createEnquiry(hotel: { id: string; slug: string }, content
   };
   // Owner first: the lead must never be lost even if the guest's address bounces.
   await sendHotelEmail({ hotelId: hotel.id, key: "enquiry_owner", to: await hotelInbox(hotel.id), vars });
-  await sendHotelEmail({ hotelId: hotel.id, key: input.kind === "booking_request" ? "booking_request_guest" : "enquiry_guest", to: row.guestEmail, vars });
+  // A public form accepts any address, so one inbox gets a few acknowledgements a day across all
+  // hotels; further enquiries still reach the owner.
+  if (await rateLimit(`ack:${sha256(row.guestEmail)}`, GUEST_ACKS_PER_DAY, 86_400)) {
+    await sendHotelEmail({ hotelId: hotel.id, key: input.kind === "booking_request" ? "booking_request_guest" : "enquiry_guest", to: row.guestEmail, vars });
+  }
   return row;
 }
 

@@ -173,6 +173,11 @@ describe("signatures and tokens", () => {
     assert.equal(verifySvix(body, headers, secret), true);
     assert.equal(verifySvix(body, headers, secret, Date.now() + 10 * 60_000), false);
   });
+  it("rejects a Svix timestamp that is not a number, even when correctly signed", () => {
+    const secret = `whsec_${Buffer.from("test-secret-key").toString("base64")}`;
+    const sig = createHmac("sha256", Buffer.from("test-secret-key")).update("msg_2.soon.{}").digest("base64");
+    assert.equal(verifySvix("{}", new Headers({ "svix-id": "msg_2", "svix-timestamp": "soon", "svix-signature": `v1,${sig}` }), secret), false);
+  });
   it("rejects form submissions that are too fast or forged", () => {
     const t = signTimestamp(Date.now() - 5000);
     assert.equal(verifyTimestamp(t), true);

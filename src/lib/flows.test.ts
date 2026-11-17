@@ -250,6 +250,20 @@ describe("booking input limits", () => {
   });
 });
 
+describe("guest acknowledgements", () => {
+  it("are sent to one address a few times a day at most, while every lead still reaches the owner", async () => {
+    const { eq } = await import("drizzle-orm");
+    const h = await m.hotel.createHotel({ userId, name: "Ack Test Inn", slug: "ack-test-inn", type: "hotel", city: "Panaji", state: "Goa", phone: "9800000005", email: "o@test.in" });
+    const { content } = await m.hotel.getDraft(h.id);
+    for (let i = 0; i < 7; i++) {
+      await m.bookings.createEnquiry(h, content, { kind: "enquiry", guestName: "Someone", guestEmail: "target@test.in", guestPhone: "9800000006", checkIn: null, checkOut: null, adults: 2, children: 0, roomId: null, message: "", marketingConsent: false, source: {} });
+    }
+    const mails = await (await m.db.getDb()).select().from(m.db.schema.emailMessages).where(eq(m.db.schema.emailMessages.hotelId, h.id));
+    assert.equal(mails.filter((x) => x.templateKey === "enquiry_owner").length, 7);
+    assert.equal(mails.filter((x) => x.templateKey === "enquiry_guest").length, 5);
+  });
+});
+
 describe("offline sites", () => {
   it("name the hotel only when it was published and is not suspended by staff", async () => {
     const { eq } = await import("drizzle-orm");
