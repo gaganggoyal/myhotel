@@ -191,6 +191,35 @@ async function lakeStay() {
 
 const stay = { guestName: "Ravi", guestEmail: "ravi@test.in", guestPhone: "9800000003", checkIn: "2027-03-01", checkOut: "2027-03-03", adults: 2, children: 0, roomName: "Lake Room", totalAmount: 500000, notes: "", status: "pending" as const, notifyGuest: false };
 
+describe("payment races", () => {
+  it("never lets a guest's report undo a staff confirmation", async () => {
+    const { eq } = await import("drizzle-orm");
+    const h = await lakeStay();
+    const actor = { userId, label: "o" };
+    const res = await m.bookings.createReservation(h, stay, actor);
+    const { request } = await m.bookings.createPaymentRequest(h, res.id, { amount: 100000, purpose: "deposit", dueDays: 3, notifyGuest: false }, actor);
+    // Both read "unpaid" before either writes.
+    const [staff, guest] = await Promise.allSettled([
+      m.bookings.resolvePayment(h.id, request.id, "paid", { note: "", notifyGuest: false }, actor),
+      m.bookings.guestReportPayment(request.token, { utr: "123456789012", note: "", proofMediaId: null }),
+    ]);
+    const [row] = await (await m.db.getDb()).select().from(m.db.schema.paymentRequests).where(eq(m.db.schema.paymentRequests.id, request.id));
+    assert.ok(staff.status === "fulfilled" || guest.status === "fulfilled");
+    if (staff.status === "fulfilled") assert.equal(row.status, "paid", "staff were told it is received, so it must stay received");
+  });
+
+  it("closes rejected requests when the stay is cancelled", async () => {
+    const h = await lakeStay();
+    const actor = { userId, label: "o" };
+    const res = await m.bookings.createReservation(h, stay, actor);
+    const { request } = await m.bookings.createPaymentRequest(h, res.id, { amount: 100000, purpose: "deposit", dueDays: 3, notifyGuest: false }, actor);
+    await m.bookings.guestReportPayment(request.token, { utr: "123456789012", note: "", proofMediaId: null });
+    await m.bookings.resolvePayment(h.id, request.id, "rejected", { note: "No credit found", notifyGuest: false }, actor);
+    await m.bookings.setReservationStatus(h.id, res.id, "cancelled", actor, false);
+    await assert.rejects(() => m.bookings.guestReportPayment(request.token, { utr: "123456789012", note: "", proofMediaId: null }), /no longer be updated/);
+  });
+});
+
 describe("booking input limits", () => {
   it("answers impossible dates and out-of-range amounts with a message, not a database error", async () => {
     const h = await lakeStay();

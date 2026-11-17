@@ -261,7 +261,8 @@ export async function setReservationStatus(hotelId: string, id: string, status: 
     await db
       .update(paymentRequests)
       .set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(eq(paymentRequests.reservationId, id), inArray(paymentRequests.status, ["unpaid", "guest_reported", "needs_review"])));
+      // "rejected" too: a guest may still report against it, which a cancelled stay must not invite.
+      .where(and(eq(paymentRequests.reservationId, id), inArray(paymentRequests.status, ["unpaid", "guest_reported", "needs_review", "rejected"])));
     if (notifyGuest) {
       const content = await contentFor(hotelId);
       await sendHotelEmail({ hotelId, key: "booking_cancelled", to: r.guestEmail, vars: await stayVars(updated, content) });
@@ -352,10 +353,14 @@ export async function guestReportPayment(token: string, input: { utr: string; no
   const { request, reservation } = found;
   if (!canTransition(request.status, "guest_reported", "guest")) throw new BookingError("This payment can no longer be updated. Contact the hotel.");
   const db = await getDb();
-  await db
+  // Conditional on the status we checked, so a report racing with staff marking it received
+  // can never undo that decision.
+  const [updated] = await db
     .update(paymentRequests)
     .set({ status: "guest_reported", guestReportedAt: new Date(), guestUtr: input.utr, guestNote: input.note || null, guestProofMediaId: input.proofMediaId ?? request.guestProofMediaId, updatedAt: new Date() })
-    .where(eq(paymentRequests.id, request.id));
+    .where(and(eq(paymentRequests.id, request.id), eq(paymentRequests.status, request.status)))
+    .returning({ id: paymentRequests.id });
+  if (!updated) throw new BookingError("The hotel has just updated this payment. Reload the page to see its status.");
   await logEvent(reservation, "payment.guest_reported", GUEST_ACTOR, { utr: input.utr, amount: request.amount });
   await sendHotelEmail({
     hotelId: request.hotelId,
@@ -389,10 +394,12 @@ export async function resolvePayment(
   if (!row) throw new BookingError("Payment request not found");
   const { request, reservation } = row;
   if (!canTransition(request.status, to, "staff")) throw new BookingError(`Cannot change a payment from “${PAYMENT_STATUS_LABELS[request.status]}” to “${PAYMENT_STATUS_LABELS[to]}”.`);
-  await db
+  const [updated] = await db
     .update(paymentRequests)
     .set({ status: to, resolvedAt: new Date(), resolvedBy: actor.userId, resolutionNote: input.note || null, updatedAt: new Date() })
-    .where(eq(paymentRequests.id, request.id));
+    .where(and(eq(paymentRequests.id, request.id), eq(paymentRequests.status, request.status)))
+    .returning({ id: paymentRequests.id });
+  if (!updated) throw new BookingError("This payment changed while you were viewing it. Reload the page and try again.");
   await logEvent(reservation, `payment.${to}`, actor, { amount: request.amount, note: input.note });
   await audit(hotelId, actor, `payment.${to}`, { ref: reservation.ref, amount: request.amount }, { target: request.id });
 

@@ -41,7 +41,7 @@ Stop `npm run dev` before running `npm run setup` or any other script that opens
 only one process can open embedded Postgres at a time.
 
 ```bash
-npm test          # 41 tests: unit (routing, slugs, UPI, DNS, signatures, billing, copywriting) + full service flows
+npm test          # 43 tests: unit (routing, slugs, UPI, DNS, signatures, billing, copywriting) + full service flows
 npm run typecheck
 npm run lint
 npm run build
