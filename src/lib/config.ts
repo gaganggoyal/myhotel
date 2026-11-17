@@ -15,7 +15,10 @@ function list(value: string | undefined): string[] {
 
 // The development fallbacks below are public (this file is in the repo), so production never uses them.
 function productionAppSecret(): string {
-  console.warn("APP_SECRET is not set: using a random per-process secret. Form tokens will not survive restarts or work across instances.");
+  // `next build` loads this module in every worker; warn when serving, not once per worker.
+  if (env.NEXT_PHASE !== "phase-production-build") {
+    console.warn("APP_SECRET is not set: using a random per-process secret. Form tokens will not survive restarts or work across instances.");
+  }
   return randomBytes(32).toString("hex");
 }
 
