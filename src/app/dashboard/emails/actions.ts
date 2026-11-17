@@ -8,7 +8,7 @@ import { fail, ok, str, type ActionState } from "@/lib/action";
 import { audit, userActor } from "@/lib/audit";
 import { requireHotel } from "@/lib/auth";
 import { appUrl, config } from "@/lib/config";
-import { getTemplate, TEMPLATE_MAP } from "@/lib/email/catalog";
+import { TEMPLATE_MAP } from "@/lib/email/catalog";
 import { hotelBrand, sendEmail, sendPlatformEmail } from "@/lib/email/send";
 import { renderEmail } from "@/lib/email/render";
 import { getDraft } from "@/lib/hotel";
@@ -45,7 +45,8 @@ export async function resetTemplateAction(_: ActionState, fd: FormData): Promise
 export async function testSendAction(_: ActionState, fd: FormData): Promise<ActionState> {
   const ctx = await requireHotel("manager");
   if (!(await rateLimit(`testmail:${ctx.hotel.id}`, 10, 3600))) return fail("Test limit reached. Try again later.");
-  const def = getTemplate(str(fd, "key"));
+  const def = TEMPLATE_MAP.get(str(fd, "key"));
+  if (!def) return fail("Unknown template.");
   const db = await getDb();
   const [override] = await db.select().from(schema.emailTemplates).where(and(eq(schema.emailTemplates.hotelId, ctx.hotel.id), eq(schema.emailTemplates.key, def.key)));
   const { content } = await getDraft(ctx.hotel.id);

@@ -31,8 +31,21 @@ async function inspect(buf: Buffer, allowed: string[]) {
   if (!meta.format || !allowed.includes(meta.format)) {
     throw new MediaError(`Unsupported image type. Use ${allowed.map((f) => f.toUpperCase()).join(", ")}.`);
   }
+  // sharp's bundled libheif decodes AVIF but not HEVC, the codec of an iPhone's HEIC photos.
+  if (meta.format === "heif" && meta.compression === "hevc") {
+    throw new MediaError("iPhone HEIC photos can’t be processed. Upload a JPEG instead (on iPhone: Settings → Camera → Formats → Most Compatible).");
+  }
   if ((meta.pages ?? 1) > 1) throw new MediaError("Animated or multi-page images are not allowed.");
   return meta;
+}
+
+/** Awaits sharp work; a file whose header read fine but whose pixels do not decode gets a message, not a 500. */
+async function imageWork<T>(work: Promise<T>): Promise<T> {
+  try {
+    return await work;
+  } catch {
+    throw new MediaError("We couldn’t read this image. It may be damaged; try saving it again as a JPEG.");
+  }
 }
 
 /** Hotel photo: three WebP widths (public, metadata stripped) plus the original kept private. */
@@ -53,11 +66,13 @@ export async function savePhoto(input: { hotelId: string; userId: string; file: 
   const variants: string[] = [];
   for (const w of PHOTO_WIDTHS) {
     if (variants.length && w > width) break;
-    const out = await base
-      .clone()
-      .resize({ width: w, withoutEnlargement: true })
-      .webp({ quality: input.kind === "logo" ? 90 : 78 })
-      .toBuffer();
+    const out = await imageWork(
+      base
+        .clone()
+        .resize({ width: w, withoutEnlargement: true })
+        .webp({ quality: input.kind === "logo" ? 90 : 78 })
+        .toBuffer(),
+    );
     await store.put(`${input.hotelId}/${id}/${w}.webp`, out, "image/webp");
     variants.push(String(w));
   }
@@ -90,7 +105,7 @@ export async function saveQr(input: { hotelId: string; userId: string; file: Buf
   assertSize(input.file);
   await inspect(input.file, ["png", "jpeg", "webp", "svg"]);
   const img = sharp(input.file, { limitInputPixels: MAX_PIXELS, density: 300 }).rotate().flatten({ background: "#ffffff" });
-  const png = await img.png({ compressionLevel: 9 }).toBuffer({ resolveWithObject: true });
+  const png = await imageWork(img.png({ compressionLevel: 9 }).toBuffer({ resolveWithObject: true }));
   const { width, height } = png.info;
   if (Math.min(width, height) < 200) throw new MediaError("The QR image is too small. Download the full-size QR from your bank or UPI business app.");
 
@@ -135,11 +150,13 @@ export async function decodeQr(image: Buffer): Promise<string | null> {
 export async function saveProof(input: { hotelId: string; file: Buffer }): Promise<MediaRow> {
   assertSize(input.file);
   await inspect(input.file, ["jpeg", "png", "webp", "heif"]);
-  const out = await sharp(input.file, { limitInputPixels: MAX_PIXELS })
-    .rotate()
-    .resize({ width: 1400, height: 2400, fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toBuffer({ resolveWithObject: true });
+  const out = await imageWork(
+    sharp(input.file, { limitInputPixels: MAX_PIXELS })
+      .rotate()
+      .resize({ width: 1400, height: 2400, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toBuffer({ resolveWithObject: true }),
+  );
   const db = await getDb();
   const id = crypto.randomUUID();
   await storage().put(`${input.hotelId}/${id}/proof.webp`, out.data, "image/webp");

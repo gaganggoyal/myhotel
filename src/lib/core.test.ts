@@ -6,13 +6,13 @@ import { describe, it } from "node:test";
 import { isPlatformAdmin } from "./auth";
 import { verifyRazorpaySignature } from "./billing/razorpay";
 import { subscriptionServesSite } from "./billing/subscription";
-import { canTransition } from "./bookings";
+import { canTransition, isEnquiryStatus } from "./bookings";
 import { defaultContent, parseContent, publishChecklist } from "./content";
 import { hmacHex, makeRef, signTimestamp, verifyTimestamp } from "./crypto";
 import { evaluateDns, isCloudflareIp } from "./domains/dns";
 import { getTemplate } from "./email/catalog";
 import { renderEmail } from "./email/render";
-import { formatINR, nightsBetween, parseRupeesToPaise, whatsappDigits } from "./format";
+import { formatINR, isIsoDate, nightsBetween, parseRupeesToPaise, whatsappDigits } from "./format";
 import { classifyHost, decodeHostSegment, encodeHostSegment, isApexDomain, normalizeSlug, validateSlug } from "./hosts";
 import { ipFromHeaders } from "./request";
 import { buildUpiIntent, isValidVpa, normalizeUtr, parseUpiUri, qrConsistencyWarning } from "./upi";
@@ -74,6 +74,13 @@ describe("platform admins", () => {
     assert.equal(isPlatformAdmin({ email: "admin@example.com", emailVerifiedAt: verified }), true);
     assert.equal(isPlatformAdmin({ email: "admin@example.com", emailVerifiedAt: null }), false, "registering a listed address is not enough");
     assert.equal(isPlatformAdmin({ email: "owner@example.com", emailVerifiedAt: verified }), false);
+  });
+});
+
+describe("lead statuses", () => {
+  it("accepts only the statuses we define, not inherited object keys", () => {
+    assert.equal(isEnquiryStatus("won"), true);
+    for (const s of ["toString", "constructor", "__proto__", "WON"]) assert.equal(isEnquiryStatus(s), false, s);
   });
 });
 
@@ -214,5 +221,9 @@ describe("formatting", () => {
     assert.equal(nightsBetween("2026-12-12", "2026-12-15"), 3);
     assert.equal(whatsappDigits("98100 00000"), "919810000000");
     assert.equal(whatsappDigits("+91 98100 00000"), "919810000000");
+  });
+  it("accepts only real calendar dates", () => {
+    assert.equal(isIsoDate("2028-02-29"), true);
+    for (const d of ["2027-02-29", "2026-02-30", "2026-13-01", "0000-01-01", "2026-1-01", ""]) assert.equal(isIsoDate(d), false, d);
   });
 });

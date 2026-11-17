@@ -189,6 +189,38 @@ async function lakeStay() {
   return h;
 }
 
+const stay = { guestName: "Ravi", guestEmail: "ravi@test.in", guestPhone: "9800000003", checkIn: "2027-03-01", checkOut: "2027-03-03", adults: 2, children: 0, roomName: "Lake Room", totalAmount: 500000, notes: "", status: "pending" as const, notifyGuest: false };
+
+describe("booking input limits", () => {
+  it("answers impossible dates and out-of-range amounts with a message, not a database error", async () => {
+    const h = await lakeStay();
+    const actor = { userId, label: "o" };
+    await assert.rejects(() => m.bookings.createReservation(h, { ...stay, checkIn: "2027-02-30" }, actor), /valid check-in/);
+    await assert.rejects(() => m.bookings.createReservation(h, { ...stay, totalAmount: 5_000_000_000 }, actor), /up to ₹1,00,00,000/);
+    const res = await m.bookings.createReservation(h, stay, actor);
+    await assert.rejects(() => m.bookings.createPaymentRequest(h, res.id, { amount: 5_000_000_000, purpose: "deposit", dueDays: 3, notifyGuest: false }, actor), /up to ₹1,00,00,000/);
+  });
+
+  it("makes the public enquiry API reject impossible or past dates with a 400", async () => {
+    const { POST } = await import("@/app/api/site/enquiry/route");
+    const post = (dates: Record<string, string>) =>
+      POST(
+        new Request("http://lake-view-stay.localhost:3000/api/site/enquiry", {
+          method: "POST",
+          headers: { host: "lake-view-stay.localhost:3000", "content-type": "application/json" },
+          body: JSON.stringify({ kind: "enquiry", guestName: "Meera", guestEmail: "meera@test.in", guestPhone: "9800000004", adults: 2, children: 0, t: m.crypto.signTimestamp(Date.now() - 5000), ...dates }),
+        }),
+      );
+    const impossible: Record<string, string>[] = [{ checkIn: "2027-02-30", checkOut: "2027-03-02" }, { checkIn: "2027-13-45" }];
+    for (const dates of impossible) {
+      assert.equal((await post(dates)).status, 400, JSON.stringify(dates));
+    }
+    const past = await post({ checkIn: "2020-01-10" });
+    assert.equal(past.status, 400);
+    assert.match(((await past.json()) as { error: string }).error, /past/);
+  });
+});
+
 describe("offline sites", () => {
   it("name the hotel only when it was published and is not suspended by staff", async () => {
     const { eq } = await import("drizzle-orm");
@@ -226,5 +258,22 @@ describe("offline sites", () => {
     assert.equal(page.site.offlineReason, "paused");
     assert.ok(page.html.includes("Lake Stay") && page.html.includes("tel:9800000001"));
     await m.hotel.setSiteOnline(await lakeStay(), true, actor);
+  });
+});
+
+describe("photo uploads", () => {
+  it("explains HEIC and damaged photos instead of failing with a server error", async () => {
+    const { MediaError, savePhoto } = await import("./media");
+    const sharp = (await import("sharp")).default;
+    const h = await lakeStay();
+    // A 480×320 HEIC made with macOS `sips -s format heic`: HEVC-coded, like an iPhone photo.
+    const heic = Buffer.from(
+      "AAAAJGZ0eXBoZWljAAAAAG1pZjFNaVBybWlhZk1pSEJoZWljAAABhG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAHBpY3QAAAAAAAAAAAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADHVybCAAAAABAAAADnBpdG0AAAAAAAEAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAORpcHJwAAAAw2lwY28AAAATY29scm5jbHgAAgACAAaAAAAADGNsbGkAywBAAAAAFGlzcGUAAAAAAAAB4AAAAUAAAAAJaXJvdAAAAAAQcGl4aQAAAAADCAgIAAAAb2h2Y0MBA3AAAACwAAAAAAA/8AD8/fj4AAALA6AAAQAXQAEMAf//A3AAAAMAsAAAAwAAAwA/cCShAAEAIUIBAQNwAAADALAAAAMAAAMAP6APCAUFiHuRZVNwICBgCKIAAQAJRAHAYeLIQFMkAAAAGWlwbWEAAAAAAAAAAQABBoECAwWGhAAAAB5pbG9jAAAAAEQAAAEAAQAAAAEAAAG4AAAAbwAAAAFtZGF0AAAAAAAAAH8AAABrKAGviiwUlCDnOaD5Q9rC/5Kb3eFtp2moYAAN6KAi8EFcRAAAoG2AkxDA+y4AABnd4IxaRRqAAAGPOlI9DSAAACTZQARb2igAATJUBRIS8AAGfdAG2L0gABaLQAoS1cAAXjoAAAMAAAMAB0w=",
+      "base64",
+    );
+    await assert.rejects(() => savePhoto({ hotelId: h.id, userId, file: heic, kind: "photo" }), (err) => err instanceof MediaError && /HEIC/.test(err.message));
+    const jpeg = await sharp({ create: { width: 800, height: 600, channels: 3, background: "#808080", noise: { type: "gaussian", mean: 128, sigma: 40 } } }).jpeg().toBuffer();
+    const truncated = jpeg.subarray(0, Math.floor(jpeg.length / 2));
+    await assert.rejects(() => savePhoto({ hotelId: h.id, userId, file: truncated, kind: "photo" }), (err) => err instanceof MediaError);
   });
 });

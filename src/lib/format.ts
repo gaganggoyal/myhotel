@@ -47,6 +47,16 @@ export function todayIST(now = new Date()): string {
   return new Date(now.getTime() + 5.5 * 3600_000).toISOString().slice(0, 10);
 }
 
+/**
+ * True for a real calendar date written YYYY-MM-DD. Date.parse quietly rolls 2026-02-30 over to
+ * 2 March, while Postgres rejects it, so a bare pattern check is not enough.
+ */
+export function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith("0000")) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
 export function nightsBetween(checkIn: string | null | undefined, checkOut: string | null | undefined): number {
   if (!checkIn || !checkOut) return 0;
   const ms = Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`);

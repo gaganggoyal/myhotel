@@ -7,7 +7,7 @@ import type { SiteContent } from "./content";
 import { makeRef, randomToken, refPrefix } from "./crypto";
 import { activeDomainFor } from "./domains/service";
 import { hotelInbox, sendHotelEmail } from "./email/send";
-import { formatDate, formatINR, nightsBetween } from "./format";
+import { formatDate, formatINR, isIsoDate, nightsBetween } from "./format";
 
 const { enquiries, reservations, reservationEvents, paymentRequests, paymentMethods, hotels } = schema;
 type Reservation = typeof reservations.$inferSelect;
@@ -23,6 +23,14 @@ export const ENQUIRY_STATUS_LABELS: Record<EnquiryStatus, string> = {
   lost: "Lost",
   spam: "Spam",
 };
+
+/** Own keys only: `in` would also accept inherited names such as "toString". */
+export function isEnquiryStatus(value: string): value is EnquiryStatus {
+  return Object.hasOwn(ENQUIRY_STATUS_LABELS, value);
+}
+
+/** Amounts are integer paise in int4 columns; ₹1 crore keeps every amount well inside that range. */
+export const MAX_AMOUNT_PAISE = 1_00_00_000_00;
 
 export const RESERVATION_STATUS_LABELS: Record<ReservationStatus, string> = {
   pending: "Pending",
@@ -184,7 +192,9 @@ export type ReservationInput = {
 };
 
 export async function createReservation(hotel: { id: string; slug: string }, input: ReservationInput, actor: AuditActor, enquiryId?: string | null) {
+  if (!isIsoDate(input.checkIn) || !isIsoDate(input.checkOut)) throw new BookingError("Choose valid check-in and check-out dates.");
   if (input.checkOut <= input.checkIn) throw new BookingError("Check-out must be after check-in.");
+  if (input.totalAmount > MAX_AMOUNT_PAISE) throw new BookingError(`Enter a total of up to ${formatINR(MAX_AMOUNT_PAISE)}.`);
   const db = await getDb();
   const ref = await uniqueRef(reservations, refPrefix(hotel.slug));
   const [r] = await db
@@ -284,6 +294,7 @@ export async function createPaymentRequest(
   const pm = await getPaymentMethod(hotel.id);
   if (!pm || !pm.enabled) throw new BookingError("Add your UPI payment details first (Payments page).");
   if (input.amount <= 0) throw new BookingError("Enter an amount greater than zero.");
+  if (input.amount > MAX_AMOUNT_PAISE) throw new BookingError(`Enter an amount of up to ${formatINR(MAX_AMOUNT_PAISE)}.`);
 
   const expiresAt = new Date(Date.now() + Math.max(1, Math.min(60, input.dueDays)) * 86_400_000);
   const [request] = await db
