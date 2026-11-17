@@ -2,12 +2,14 @@ import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { getDb, schema } from "@/db";
 import { PageHeader, Table, Td } from "@/components/ui";
+import { requireAdmin } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 
 type Change = { before: { payeeName: string; vpa: string } | null; after: { payeeName: string; vpa: string }; qrWarning: string | null };
 
 /** Review feed for the most abuse-prone change: where guests send money. */
 export default async function PaymentChanges() {
+  await requireAdmin();
   const db = await getDb();
   const rows = await db
     .select({ log: schema.auditLogs, hotel: schema.hotels })

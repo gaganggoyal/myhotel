@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
+import { isPlatformAdmin } from "./auth";
 import { verifyRazorpaySignature } from "./billing/razorpay";
 import { subscriptionServesSite } from "./billing/subscription";
 import { canTransition } from "./bookings";
@@ -51,6 +54,26 @@ describe("slugs", () => {
     assert.ok(validateSlug("ab"));
     assert.ok(validateSlug("-abc"));
     assert.ok(validateSlug("a--b"));
+  });
+});
+
+describe("page access", () => {
+  it("is checked by every admin and dashboard page itself, since layouts are skipped on client navigation", () => {
+    const app = path.join(__dirname, "..", "app");
+    for (const [area, check] of [["admin", /requireAdmin\(\)/], ["dashboard", /requireHotel\(|loadEditor\(\)/]] as const) {
+      const pages = readdirSync(path.join(app, area), { recursive: true }).map(String).filter((f) => f.endsWith("page.tsx"));
+      assert.ok(pages.length > 0, area);
+      for (const page of pages) assert.match(readFileSync(path.join(app, area, page), "utf8"), check, `${area}/${page}`);
+    }
+  });
+});
+
+describe("platform admins", () => {
+  it("need a verified email that ADMIN_EMAILS still lists", () => {
+    const verified = new Date();
+    assert.equal(isPlatformAdmin({ email: "admin@example.com", emailVerifiedAt: verified }), true);
+    assert.equal(isPlatformAdmin({ email: "admin@example.com", emailVerifiedAt: null }), false, "registering a listed address is not enough");
+    assert.equal(isPlatformAdmin({ email: "owner@example.com", emailVerifiedAt: verified }), false);
   });
 });
 

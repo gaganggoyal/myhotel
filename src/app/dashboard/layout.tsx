@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ActionButton } from "@/components/forms";
 import { resendVerificationAction, logoutAction } from "@/app/(auth)/actions";
-import { requireHotel } from "@/lib/auth";
+import { isPlatformAdmin, requireHotel } from "@/lib/auth";
 import { getSubscription, subscriptionServesSite } from "@/lib/billing/subscription";
 import { newEnquiryCount, openPaymentCount } from "@/lib/bookings";
 import { config } from "@/lib/config";
@@ -81,7 +81,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {user.isPlatformAdmin ? (
+            {isPlatformAdmin(user) ? (
               <Link href="/admin" className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
                 Admin
               </Link>

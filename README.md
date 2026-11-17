@@ -41,7 +41,7 @@ Stop `npm run dev` before running `npm run setup` or any other script that opens
 only one process can open embedded Postgres at a time.
 
 ```bash
-npm test          # 33 tests: unit (routing, slugs, UPI, DNS, signatures, billing, copywriting) + full service flows
+npm test          # 35 tests: unit (routing, slugs, UPI, DNS, signatures, billing, copywriting) + full service flows
 npm run typecheck
 npm run lint
 npm run build
@@ -165,6 +165,8 @@ scripts/                    migrate, seed, cron
    `x-forwarded-for` entry. Set `CLIENT_IP_HEADER` if your setup differs.
 9. Set `APP_SECRET` to a random 32-byte value (without it, production uses a random
    per-process secret and logs a warning) and `ADMIN_EMAILS` to your staff emails.
+   Production has no default admin. A listed address opens the admin console only after its
+   email is verified, and removing it from the list revokes access.
    Optionally set `TURNSTILE_*` for form CAPTCHA.
 10. **Before taking money:** have Indian counsel review the generated legal text (DPDP Act,
    consumer protection, GST invoicing, CERT-In log retention). Test a backup restore and

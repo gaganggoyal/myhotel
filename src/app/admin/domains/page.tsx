@@ -2,11 +2,13 @@ import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { getDb, schema } from "@/db";
 import { Badge, PageHeader, Table, Td } from "@/components/ui";
+import { requireAdmin } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { DOMAIN_STATUS_COPY } from "@/lib/domains/service";
 import { formatDateTime } from "@/lib/format";
 
 export default async function AdminDomains() {
+  await requireAdmin();
   const db = await getDb();
   const rows = await db
     .select({ d: schema.domains, hotel: schema.hotels })

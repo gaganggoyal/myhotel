@@ -2,10 +2,12 @@ import { desc, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { getDb, schema } from "@/db";
 import { Badge, PageHeader, Table, Td, cx } from "@/components/ui";
+import { requireAdmin } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { formatDateTime } from "@/lib/format";
 
 export default async function AdminEmails({ searchParams }: { searchParams: Promise<{ problems?: string }> }) {
+  await requireAdmin();
   const problems = (await searchParams).problems === "1";
   const db = await getDb();
   const rows = await db

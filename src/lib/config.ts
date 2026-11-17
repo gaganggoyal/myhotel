@@ -30,7 +30,8 @@ export const config = {
   rootHostname,
   protocol: env.APP_PROTOCOL ?? (isProd ? "https" : "http"),
   appSecret: env.APP_SECRET || (isProd ? productionAppSecret() : "dev-only-secret-change-me"),
-  adminEmails: list(env.ADMIN_EMAILS ?? "admin@example.com"),
+  /** Empty in production when unset: nobody can become an admin by registering a sample address. */
+  adminEmails: list(env.ADMIN_EMAILS ?? (isProd ? "" : "admin@example.com")),
   /** empty in production when unset, which disables /api/cron/run */
   cronSecret: env.CRON_SECRET || (isProd ? "" : "dev-cron-secret"),
 

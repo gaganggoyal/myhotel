@@ -3,12 +3,14 @@ import Link from "next/link";
 import { getDb, schema } from "@/db";
 import { ActionButton } from "@/components/forms";
 import { Badge, PageHeader, Stat, Table, Td } from "@/components/ui";
+import { requireAdmin } from "@/lib/auth";
 import { STATUS_LABELS } from "@/lib/billing/subscription";
 import { DOMAIN_STATUS_COPY } from "@/lib/domains/service";
 import { daysBefore, formatDate, formatDateTime } from "@/lib/format";
 import { runJobsAction } from "./actions";
 
 export default async function AdminHotels() {
+  await requireAdmin();
   const db = await getDb();
   const rows = await db
     .select({ hotel: schema.hotels, sub: schema.subscriptions, owner: schema.users })
