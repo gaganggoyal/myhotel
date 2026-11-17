@@ -306,3 +306,15 @@ describe("photo uploads", () => {
     await assert.rejects(() => savePhoto({ hotelId: h.id, userId, file: truncated, kind: "photo" }), (err) => err instanceof MediaError);
   });
 });
+
+describe("web addresses", () => {
+  it("suggests addresses that fit in 63 characters, even for long names already taken", async () => {
+    const { validateSlug } = await import("./hosts");
+    const name = "The Very Long Name Of A Heritage Haveli Hotel By The Lake In Udaipur";
+    const first = await m.hotel.suggestSlug(name);
+    await m.hotel.createHotel({ userId, name, slug: first, type: "hotel", city: "Udaipur", state: "Rajasthan", phone: "9800000008", email: "o@test.in" });
+    const second = await m.hotel.suggestSlug(name);
+    assert.notEqual(second, first);
+    assert.equal(validateSlug(second), null, second);
+  });
+});

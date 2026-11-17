@@ -55,6 +55,17 @@ describe("slugs", () => {
     assert.ok(validateSlug("-abc"));
     assert.ok(validateSlug("a--b"));
   });
+  it("keeps real names that merely contain a refused word", () => {
+    for (const slug of ["bhimtal-lake-view", "golden-pagoda-homestay", "hotel-kshitij", "shital-residency", "joyous-homestay", "sussex-house", "kasbi-inn"]) {
+      assert.equal(validateSlug(slug), null, slug);
+    }
+  });
+  it("still refuses brands and profanity used as words", () => {
+    for (const slug of ["bhim-upi-help", "agoda-deals", "oyorooms", "sbi-helpdesk", "help-sbi", "booking-com-offers"]) {
+      assert.match(validateSlug(slug) ?? "", /brand/, slug);
+    }
+    for (const slug of ["sexy-stay", "shit-hotel"]) assert.ok(validateSlug(slug), slug);
+  });
 });
 
 describe("page access", () => {

@@ -22,14 +22,19 @@ export async function isSlugAvailable(slug: string, exceptHotelId?: string): Pro
   return true;
 }
 
+/** `base` plus "-suffix", trimmed so the whole label still fits in 63 characters. */
+function withSuffix(base: string, suffix: string): string {
+  return `${base.slice(0, 62 - suffix.length).replace(/-+$/, "")}-${suffix}`;
+}
+
 export async function suggestSlug(name: string): Promise<string> {
   const base = normalizeSlug(name) || "my-hotel";
   let candidate = base.length >= 3 ? base : `${base}-stay`;
   for (let i = 2; i < 50; i++) {
     if (!validateSlug(candidate) && (await isSlugAvailable(candidate))) return candidate;
-    candidate = `${base}-${i}`.slice(0, 63);
+    candidate = withSuffix(base, String(i));
   }
-  return `${base}-${Math.random().toString(36).slice(2, 6)}`;
+  return withSuffix(base, Math.random().toString(36).slice(2, 6));
 }
 
 export async function createHotel(input: {
