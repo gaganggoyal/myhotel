@@ -66,7 +66,8 @@ export const config = {
   },
 
   billing: {
-    provider: (env.BILLING_PROVIDER ?? "simulated") as "simulated" | "razorpay",
+    /** "none" in production when unset, which refuses to activate plans rather than simulating free ones. */
+    provider: (env.BILLING_PROVIDER || (isProd ? "none" : "simulated")) as "simulated" | "razorpay" | "none",
     razorpayKeyId: env.RAZORPAY_KEY_ID ?? "",
     razorpayKeySecret: env.RAZORPAY_KEY_SECRET ?? "",
     razorpayWebhookSecret: env.RAZORPAY_WEBHOOK_SECRET ?? "",

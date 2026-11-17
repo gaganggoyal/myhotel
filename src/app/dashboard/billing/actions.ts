@@ -31,6 +31,9 @@ export async function subscribeAction(_: ActionState, fd: FormData): Promise<Act
     return fail("Could not open the payment page. Try again.");
   }
 
+  // Production without BILLING_PROVIDER: never hand out plans for free.
+  if (config.billing.provider !== "simulated") return fail("Online billing is not configured yet. Contact support.");
+
   // Development / simulated billing: no money moves.
   await activateManually(ctx.hotel.id, interval, "simulated");
   invalidateHotel(ctx.hotel.id);

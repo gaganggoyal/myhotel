@@ -154,7 +154,8 @@ scripts/                    migrate, seed, cron
    - Make sure a human reads `abuse@`.
 6. **Billing.**
    - Create monthly and yearly plans in Razorpay (₹999 and ₹9,990 + GST), then set
-     `BILLING_PROVIDER=razorpay`, `RAZORPAY_*` and both plan IDs.
+     `BILLING_PROVIDER=razorpay`, `RAZORPAY_*` and both plan IDs. Until it is set, production
+     refuses to start a plan rather than simulating a free one.
    - Add the webhook `/api/webhooks/razorpay` with all `subscription.*` events and set
      `RAZORPAY_WEBHOOK_SECRET`.
 7. **Jobs.** `vercel.json` runs `/api/cron/run` hourly; Vercel sends `CRON_SECRET`. Elsewhere,
